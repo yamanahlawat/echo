@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "echo"
+version = "0.1.0"
+description = ""
+authors = ["Yaman Ahlawat <yaman@outlook.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+accelerate = "^0.25.0"
+transformers = "^4.36.2"
+datasets = "^2.16.1"
+diffusers = "^0.25.0"
+peft = "^0.7.1"
+wandb = "^0.16.2"
+pydantic = "^2.5.3"
+loguru = "^0.7.2"
+
+
+[tool.poetry.group.dev.dependencies]
+ipdb = "^0.13.13"
+ipython = "^8.20.0"
+ruff = "^0.1.12"
+pre-commit = "^3.6.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
