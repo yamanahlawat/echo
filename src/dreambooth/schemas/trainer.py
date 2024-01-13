@@ -1,4 +1,4 @@
-from src.core.schemas.base import (
+from src.core.schemas import (
     AdvancedTrainingFeaturesSchema,
     CheckpointManagementSchema,
     ClassSchema,
