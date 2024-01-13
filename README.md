@@ -1,1 +1,1 @@
-A Simple Trainer for Stable Diffusion Models
+A Simple Opinionated Trainer for Stable Diffusion Models
