@@ -51,7 +51,6 @@ class SchedulerEnum(str, Enum):
 
     DPMSolverMultistepScheduler = "DPMSolverMultistepScheduler"
     DDPMScheduler = "DDPMScheduler"
-    EulerAncestralDiscreteScheduler = "EulerAncestralDiscreteScheduler"
 
 
 class OptimizerEnum(str, Enum):
