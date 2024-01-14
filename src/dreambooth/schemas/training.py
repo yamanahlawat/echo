@@ -15,7 +15,7 @@ from src.core.schemas import (
 )
 
 
-class DreamboothTrainerSchema(
+class DreamboothTrainingSchema(
     AdvancedTrainingFeaturesSchema,
     TrainingSetupSchema,
     ResourceOptimizationSchema,
@@ -30,4 +30,4 @@ class DreamboothTrainerSchema(
     InstanceSchema,
     ModelConfigurationSchema,
 ):
-    pass
+    ...

@@ -1,6 +1,5 @@
+from accelerate.utils.dataclasses import PrecisionType
 from pydantic import BaseModel, Field
-
-from src.core.constants import PrecisionTypeEnum
 
 
 class ResourceOptimizationSchema(BaseModel):
@@ -9,8 +8,8 @@ class ResourceOptimizationSchema(BaseModel):
     memory-efficient attention options, gradient accumulation steps, and others.
     """
 
-    mixed_precision: PrecisionTypeEnum = Field(
-        default=PrecisionTypeEnum.NO,
+    mixed_precision: PrecisionType = Field(
+        default=PrecisionType.NO,
         description=(
             "Whether to use mixed precision. Choose between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >="
             " 1.10.and an Nvidia Ampere GPU.  Default to the value of accelerate config of the current system or the"
