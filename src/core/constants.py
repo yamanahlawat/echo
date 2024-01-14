@@ -1,7 +1,17 @@
 from enum import Enum
 
 
-class VariantTypeEnum(str, Enum):
+class BaseEnum(str, Enum):
+    """
+    An enum class that can get the value of an item with `str(Enum.key)`
+    """
+
+    @classmethod
+    def list(cls):
+        return list(map(lambda c: c.value, cls))
+
+
+class VariantTypeEnum(BaseEnum):
     """
     Enum for specifying the variant type of the model.
     """
@@ -9,7 +19,7 @@ class VariantTypeEnum(str, Enum):
     FP16 = "fp16"
 
 
-class LearningRateSchedulerEnum(str, Enum):
+class LearningRateSchedulerEnum(BaseEnum):
     """
     Enum for specifying the learning rate scheduler type.
     - CONSTANT: Keeps the learning rate constant.
@@ -28,7 +38,7 @@ class LearningRateSchedulerEnum(str, Enum):
     CONSTANT_WITH_WARMUP = "constant_with_warmup"
 
 
-class PrecisionTypeEnum(str, Enum):
+class PrecisionTypeEnum(BaseEnum):
     """
     Enum for specifying the precision type for training.
     - NO: No specific precision.
@@ -43,7 +53,7 @@ class PrecisionTypeEnum(str, Enum):
     FP32 = "fp32"
 
 
-class SchedulerEnum(str, Enum):
+class SchedulerEnum(BaseEnum):
     """
     Enum for specifying the scheduler type.
     Includes different schedulers for controlling the learning rate and other training dynamics.
@@ -53,7 +63,7 @@ class SchedulerEnum(str, Enum):
     DDPMScheduler = "DDPMScheduler"
 
 
-class OptimizerEnum(str, Enum):
+class OptimizerEnum(BaseEnum):
     """
     Enum for specifying the optimizer type.
     - ADAMW: Adam optimizer with weight decay.
@@ -63,3 +73,9 @@ class OptimizerEnum(str, Enum):
     # TODO: Add support for more optimizers
     ADAMW = "adamw"
     LION = "lion"
+
+
+class ModelFileExtensions(BaseEnum):
+    SAFETENSORS = ".safetensors"
+    CKPT = ".ckpt"
+    BIN = ".bin"
