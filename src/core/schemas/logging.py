@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from accelerate.utils.dataclasses import LoggerType
-from diffusers.utils import is_tensorboard_available, is_wandb_available
+from diffusers.utils.import_utils import is_tensorboard_available, is_wandb_available
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 

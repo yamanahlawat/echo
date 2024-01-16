@@ -72,6 +72,7 @@ class OptimizerEnum(BaseEnum):
 
     # TODO: Add support for more optimizers
     ADAMW = "adamw"
+    ADAMW_8BIT = "adamw_8bit"
     LION = "lion"
 
 

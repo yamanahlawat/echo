@@ -18,7 +18,7 @@ class InstanceSchema(BaseModel):
     instance_data_dir: Path = Field(description="Path to the directory containing the training instance images.")
 
     @field_validator("instance_data_dir", mode="after")
-    def validate_instance_data_dir(cls, value: Path):
+    def validate_instance_data_dir(cls, value: Path) -> Path:
         if not value.is_dir() and not value.exists():
             error = f"Instance data directory: '{value}' does not exist."
             logger.error(error)

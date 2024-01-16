@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field
+from loguru import logger
+from pydantic import BaseModel, Field, field_validator
 
 from src.core.constants import LearningRateSchedulerEnum, OptimizerEnum
 
@@ -58,3 +59,22 @@ class OptimizerSchema(BaseModel):
         default=OptimizerEnum.ADAMW,
         description="Select which optimizer to use.",
     )
+
+    @field_validator("optimizer", mode="after")
+    @classmethod
+    def validate_optimizer(cls, value: OptimizerEnum) -> OptimizerEnum:
+        if value == OptimizerEnum.ADAMW_8BIT:
+            try:
+                import bitsandbytes  # noqa: F401
+            except ImportError as e:
+                error = "Make sure to install `bitsandbytes` (pip install bitsandbytes) if you want to use it for 8-bit optimizer."
+                logger.error(error)
+                raise ValueError(error) from e
+        if value == OptimizerEnum.LION:
+            try:
+                from pytorch_optimizer import Lion  # noqa: F401
+            except ImportError as e:
+                error = "Make sure to install `pytorch_optimizer` (pip install pytorch-optimizer) if you want to use it for Lion optimizer."
+                logger.error(error)
+                raise ValueError(error) from e
+        return value
