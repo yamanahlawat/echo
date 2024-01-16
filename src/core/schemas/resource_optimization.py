@@ -1,5 +1,7 @@
 from accelerate.utils.dataclasses import PrecisionType
-from pydantic import BaseModel, Field
+from diffusers.utils.import_utils import is_xformers_available
+from loguru import logger
+from pydantic import BaseModel, Field, field_validator
 
 
 class ResourceOptimizationSchema(BaseModel):
@@ -43,3 +45,12 @@ class ResourceOptimizationSchema(BaseModel):
             " https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices"
         ),
     )
+
+    @field_validator("enable_xformers_memory_efficient_attention", mode="after")
+    @classmethod
+    def validate_enable_xformers_memory_efficient_attention(cls, value: bool) -> bool:
+        if value and not is_xformers_available():
+            error = "Make sure to install `xformers` (pip install xformers) if you want to use it for memory efficient attention during training."
+            logger.error(error)
+            raise ValueError(error)
+        return value

@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  echo:
+    build:
+      context: .
+      dockerfile: ./docker/DockerFile
+    volumes:
+      - ./:/app

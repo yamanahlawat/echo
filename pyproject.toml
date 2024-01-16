@@ -15,6 +15,8 @@ peft = "^0.7.1"
 wandb = "^0.16.2"
 pydantic = "^2.5.3"
 loguru = "^0.7.2"
+bitsandbytes = "^0.42.0"
+pytorch-optimizer = "^2.12.0"
 
 
 [tool.poetry.group.dev.dependencies]
