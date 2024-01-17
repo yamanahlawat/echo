@@ -1,3 +1,4 @@
+import torch
 from diffusers import UNet2DConditionModel
 from transformers import AutoTokenizer, PretrainedConfig
 
@@ -91,3 +92,58 @@ class DreamboothTrainer(BaseTrainer):
 
             model.load_state_dict(load_model.state_dict())
             del load_model
+
+    def _check_model_weights(self):
+        # Check that all trainable models are in full precision
+        low_precision_error_string = (
+            "Please make sure to always have all model weights in full float32 precision when starting training - even if"
+            " doing mixed precision training. copy of the weights should still be float32."
+        )
+
+        if self.accelerator.unwrap_model(self.unet).dtype != torch.float32:
+            raise ValueError(
+                f"Unet loaded as datatype {self.accelerator.unwrap_model(self.unet).dtype}. {low_precision_error_string}"
+            )
+
+        if self.train_text_encoder and self.accelerator.unwrap_model(self.text_encoder).dtype != torch.float32:
+            raise ValueError(
+                f"Text encoder loaded as datatype {self.accelerator.unwrap_model(self.text_encoder).dtype}. {low_precision_error_string}"
+            )
+
+    def setup(self):
+        if self.vae:
+            self.vae.requires_grad_(False)
+
+        if not self.schema.train_text_encoder:
+            self.text_encoder.requires_grad_(False)
+
+        if self.schema.gradient_checkpointing:
+            self.unet.enable_gradient_checkpointing()
+            if self.schema.train_text_encoder:
+                self.text_encoder.gradient_checkpointing_enable()
+
+        self._check_model_weights()
+
+        if self.schema.scale_learning_rate:
+            self.schema.learning_rate = (
+                self.schema.learning_rate
+                * self.schema.gradient_accumulation_steps
+                * self.schema.train_batch_size
+                * self.accelerator.num_processes
+            )
+
+        # parameters_to_optimize = itertools.chain(
+        #     self.unet.parameters(),
+        #     self.text_encoder.parameters() if self.schema.train_text_encoder else self.unet.parameters(),
+        # )
+
+        # optimizer = self._init_optimizer(parameter_to_optimize=parameters_to_optimize)
+
+        # # todo: add pre_compute_text_embeddings
+        # pre_computed_encoder_hidden_states = None
+        # validation_prompt_encoder_hidden_states = None
+        # validation_prompt_negative_prompt_embeds = None
+        # pre_computed_class_prompt_encoder_hidden_states = None
+
+    def train(self):
+        self.setup()

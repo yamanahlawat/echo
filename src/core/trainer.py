@@ -1,6 +1,7 @@
 import logging
 
 import diffusers
+import torch
 import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
@@ -10,7 +11,7 @@ from huggingface_hub import create_repo
 from loguru import logger as train_logger
 from pydantic import BaseModel
 
-from src.core.constants import ModelFileExtensions
+from src.core.constants import ModelFileExtensions, OptimizerEnum
 
 logger = get_logger(__name__)
 
@@ -27,6 +28,10 @@ class BaseTrainer:
         self.noise_scheduler = self._init_noise_scheduler()
         self.vae = self._init_vae()
         self.unet = self._init_unet()
+
+        # Enable TF32 for faster training on Ampere GPUs,
+        # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
+        self._allow_tf32()
 
     def _init_accelerator(self):
         # using train_logger since logger from accelerate is not initialized
@@ -110,3 +115,38 @@ class BaseTrainer:
             subfolder=sub_folder,
             variant=self.schema.variant,
         )
+
+    def _allow_tf32(self):
+        if self.schema.allow_tf32:
+            torch.backends.cuda.matmul.allow_tf32 = True
+
+    def _init_optimizer(self, parameter_to_optimize):
+        if self.schema.optimizer == OptimizerEnum.ADAMW:
+            return torch.optim.AdamW(
+                params=parameter_to_optimize,
+                lr=self.schema.learning_rate,
+                betas=(self.schema.beta1, self.schema.beta2),
+                weight_decay=self.schema.weight_decay,
+                eps=self.schema.epsilon,
+            )
+        elif self.schema.optimizer == OptimizerEnum.ADAMW_8BIT:
+            from bitsandbytes.optim import Adam8bit
+
+            return Adam8bit(
+                params=parameter_to_optimize,
+                lr=self.schema.learning_rate,
+                betas=(self.schema.beta1, self.schema.beta2),
+                weight_decay=self.schema.weight_decay,
+                eps=self.schema.epsilon,
+            )
+        elif self.schema.optimizer == OptimizerEnum.LION:
+            from bitsandbytes.optim import Lion
+
+            return Lion(
+                params=parameter_to_optimize,
+                lr=self.schema.learning_rate,
+                betas=(self.schema.beta1, self.schema.beta2),
+                weight_decay=self.schema.weight_decay,
+            )
+        else:
+            raise ValueError(f"Unsupported optimizer: {self.schema.optimizer}")

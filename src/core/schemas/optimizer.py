@@ -35,21 +35,21 @@ class LearningRateSchema(BaseModel):
 
 class OptimizerSchema(BaseModel):
     """
-    Schema for optimizer configurations. Defines parameters for the Adam optimizer
+    Schema for optimizer configurations. Defines parameters for the optimizer
     including beta values, epsilon, weight decay, and optimizer type.
     """
 
-    adam_beta1: float = Field(
+    beta1: float = Field(
         default=0.9,
-        description="The beta1 parameter for the Adam optimizer.",
+        description="The beta1 parameter for the optimizer.",
     )
-    adam_beta2: float = Field(
+    beta2: float = Field(
         default=0.999,
-        description="The beta2 parameter for the Adam optimizer.",
+        description="The beta2 parameter for the optimizer.",
     )
-    adam_epsilon: float = Field(
+    epsilon: float = Field(
         default=1e-8,
-        description="Epsilon value for the Adam optimizer",
+        description="Epsilon value for the optimizer",
     )
     weight_decay: float = Field(
         default=1e-2,
