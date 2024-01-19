@@ -7,3 +7,10 @@ services:
       dockerfile: ./docker/DockerFile
     volumes:
       - ./:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]

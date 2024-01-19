@@ -4,7 +4,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from deepface import DeepFace
-from PIL import ExifTags, Image
+from PIL import Image, ImageOps
 
 
 class FaceDetectorModel(Enum):
@@ -38,7 +38,7 @@ class ImagePreprocessing:
         if not image_path.exists():
             raise ValueError("Image doesn't exists")
         image = Image.open(image_path)
-        image = self.orientation(image=image)
+        image = ImageOps.exif_transpose(image=image)
         return image
 
     def detect_faces(
@@ -70,51 +70,6 @@ class ImagePreprocessing:
         if not results:
             raise ValueError("No faces detected")
         return results
-
-    def orientation(self, image):
-        """
-        Correct the orientation of the image based on its EXIF data.
-        Args:
-            image (Image.Image): The image to correct.
-        Returns:
-            Image.Image: The corrected image.
-        """
-        try:
-            exif = {
-                ExifTags.TAGS[k]: v
-                for k, v in image.getexif().items()
-                if k in ExifTags.TAGS and isinstance(v, (int, bytes))
-            }
-        except AttributeError:
-            exif = {}
-        orientation = exif.get("Orientation", 1)
-
-        if orientation == 1:
-            # Normal, do nothing
-            pass
-        elif orientation == 2:
-            # Flipped horizontally
-            image = image.transpose(Image.FLIP_LEFT_RIGHT)
-        elif orientation == 3:
-            # Upside down
-            image = image.rotate(180, expand=True)
-        elif orientation == 4:
-            # Flipped vertically
-            image = image.transpose(Image.FLIP_TOP_BOTTOM)
-        elif orientation == 5:
-            # Rotated 90 deg CCW and flipped
-            image = image.rotate(-90, expand=True).transpose(Image.FLIP_LEFT_RIGHT)
-        elif orientation == 6:
-            # Rotated 90 deg CCW
-            image = image.rotate(-90, expand=True)
-        elif orientation == 7:
-            # Rotated 90 deg CW and flipped
-            image = image.rotate(90, expand=True).transpose(Image.FLIP_LEFT_RIGHT)
-        elif orientation == 8:
-            # Rotated 90 deg CW
-            image = image.rotate(90, expand=True)
-
-        return image
 
     def expand_box(
         self,

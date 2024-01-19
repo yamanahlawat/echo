@@ -1,9 +1,15 @@
+import itertools
+import math
+
 import torch
 from diffusers import UNet2DConditionModel
+from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, PretrainedConfig
 
+from src.core.dataset import DreamBoothDataset
 from src.core.trainer import BaseTrainer
 from src.dreambooth.schemas.training import DreamboothTrainingSchema
+from src.utils.common import collate_fn
 
 
 class DreamboothTrainer(BaseTrainer):
@@ -110,10 +116,17 @@ class DreamboothTrainer(BaseTrainer):
                 f"Text encoder loaded as datatype {self.accelerator.unwrap_model(self.text_encoder).dtype}. {low_precision_error_string}"
             )
 
-    def setup(self):
-        if self.vae:
-            self.vae.requires_grad_(False)
+    def _tokenize_prompt(self, prompt: str, add_special_tokens: bool = False):
+        return self.tokenizer(
+            prompt=prompt,
+            padding="max_length",
+            max_length=self.tokenizer.model_max_length,
+            truncation=True,
+            add_special_tokens=add_special_tokens,
+            return_tensors="pt",
+        )
 
+    def setup(self):
         if not self.schema.train_text_encoder:
             self.text_encoder.requires_grad_(False)
 
@@ -132,18 +145,79 @@ class DreamboothTrainer(BaseTrainer):
                 * self.accelerator.num_processes
             )
 
-        # parameters_to_optimize = itertools.chain(
-        #     self.unet.parameters(),
-        #     self.text_encoder.parameters() if self.schema.train_text_encoder else self.unet.parameters(),
-        # )
+        parameters_to_optimize = itertools.chain(
+            self.unet.parameters(),
+            self.text_encoder.parameters() if self.schema.train_text_encoder else self.unet.parameters(),
+        )
 
-        # optimizer = self._init_optimizer(parameter_to_optimize=parameters_to_optimize)
+        optimizer = self._init_optimizer(parameter_to_optimize=parameters_to_optimize)
 
-        # # todo: add pre_compute_text_embeddings
-        # pre_computed_encoder_hidden_states = None
-        # validation_prompt_encoder_hidden_states = None
-        # validation_prompt_negative_prompt_embeds = None
-        # pre_computed_class_prompt_encoder_hidden_states = None
+        # todo: add pre_compute_text_embeddings
+
+        train_dataset = DreamBoothDataset(
+            height=self.schema.height,
+            width=self.schema.width,
+            tokenizer=self.tokenizer,
+            instance_data_dir=self.schema.instance_data_dir,
+            instance_prompt=self.schema.instance_prompt,
+            num_class_images=self.schema.num_class_images,
+            tokenize_prompt=self._tokenize_prompt,
+            class_data_dir=self.schema.class_data_dir,
+            class_prompt=self.schema.class_prompt,
+            encoder_hidden_states=None,
+            class_prompt_encoder_hidden_states=None,
+        )
+
+        train_dataloader = DataLoader(
+            dataset=train_dataset,
+            batch_size=self.schema.train_batch_size,
+            shuffle=True,
+            collate_fn=lambda examples: collate_fn(examples, self.schema.with_prior_preservation),
+            num_workers=self.schema.dataloader_num_workers,
+        )
+
+        # Scheduler and math around the number of training steps.
+        overrode_max_train_steps = False
+        num_update_steps_per_epoch = math.ceil(len(train_dataloader) / self.schema.gradient_accumulation_steps)
+        if not self.schema.max_train_steps:
+            self.schema.max_train_steps = self.schema.num_train_epochs * num_update_steps_per_epoch
+            overrode_max_train_steps = True
+
+        learning_rate_scheduler = self._init_learning_rate_scheduler(optimizer=optimizer)
+
+        # Prepare everything with accelerator.
+        if self.schema.train_text_encoder:
+            (
+                self.unet,
+                self.text_encoder,
+                optimizer,
+                train_dataloader,
+                learning_rate_scheduler,
+            ) = self.accelerator.prepare(
+                self.unet, self.text_encoder, optimizer, train_dataloader, learning_rate_scheduler
+            )
+        else:
+            (self.unet, optimizer, train_dataloader, learning_rate_scheduler) = self.accelerator.prepare(
+                self.unet, optimizer, train_dataloader, learning_rate_scheduler
+            )
+
+        if not self.schema.train_text_encoder and self.text_encoder:
+            self.text_encoder.to(device=self.accelerator.device, dtype=self.weight_dtype)
+
+        # we need to recalculate the total training steps as the size of the training dataloader may have changed
+        num_update_steps_per_epoch = math.ceil(len(train_dataloader) / self.schema.gradient_accumulation_steps)
+        if overrode_max_train_steps:
+            self.schema.max_train_steps = self.schema.num_train_epochs * num_update_steps_per_epoch
+
+        # afterwards we recalculate the number of training epochs
+        self.schema.num_train_epochs = math.ceil(self.schema.max_train_steps / num_update_steps_per_epoch)
+
+        # We need to initialize the trackers we use, and also store our configuration.
+        # The trackers initializes automatically on the main process.
+        if self.accelerator.is_main_process:
+            self.accelerator.init_trackers(project_name=self.schema.output_dir.name, config=self.schema.to_dict())
+
+        return train_dataloader, optimizer, learning_rate_scheduler
 
     def train(self):
         self.setup()
