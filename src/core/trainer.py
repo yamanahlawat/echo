@@ -1,16 +1,18 @@
 import logging
 
 import diffusers
+import torch
 import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
 from diffusers import AutoencoderKL, DDPMScheduler, UNet2DConditionModel
+from diffusers.optimization import get_scheduler
 from huggingface_hub import create_repo
 from loguru import logger as train_logger
 from pydantic import BaseModel
 
-from src.core.constants import ModelFileExtensions
+from src.core.constants import ModelFileExtensions, OptimizerEnum
 
 logger = get_logger(__name__)
 
@@ -20,6 +22,7 @@ class BaseTrainer:
         self.schema = schema
         # we must initialize the accelerate state before using the logging utility.
         self.accelerator = self._init_accelerator()
+        self.weight_dtype = self._get_weight_dtype()
         self._init_logging()
         self.logger = logger
         self._init_seed()
@@ -27,6 +30,10 @@ class BaseTrainer:
         self.noise_scheduler = self._init_noise_scheduler()
         self.vae = self._init_vae()
         self.unet = self._init_unet()
+
+        # Enable TF32 for faster training on Ampere GPUs,
+        # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
+        self._allow_tf32()
 
     def _init_accelerator(self):
         # using train_logger since logger from accelerate is not initialized
@@ -87,21 +94,27 @@ class BaseTrainer:
         if vae_name := self.schema.pretrained_vae_name_or_path:
             if vae_name.suffix in ModelFileExtensions.list():
                 self.logger.info(f"Initializing VAE from file: {vae_name}")
-                return AutoencoderKL.from_single_file(pretrained_model_link_or_path=vae_name)
+                vae = AutoencoderKL.from_single_file(pretrained_model_link_or_path=vae_name)
             else:
                 self.logger.info(f"Initializing VAE from pretrained VAE model: {vae_name}")
-                return AutoencoderKL.from_pretrained(
+                vae = AutoencoderKL.from_pretrained(
                     pretrained_model_name_or_path=self.schema.pretrained_vae_name_or_path,
                     subfolder=sub_folder,
                     variant=self.schema.variant,
                 )
         else:
             self.logger.info(f"Initializing VAE from pretrained model: {self.schema.pretrained_model_name_or_path}")
-            return AutoencoderKL.from_pretrained(
+            vae = AutoencoderKL.from_pretrained(
                 pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
                 subfolder=sub_folder,
                 variant=self.schema.variant,
             )
+        if vae:
+            vae.requires_grad_(False)
+        vae_dtype = torch.float32 if self.schema.no_half_vae else self.weight_dtype
+        # TODO: check when to move to cuda
+        vae.to(device=self.accelerator.device, dtype=vae_dtype)
+        return vae
 
     def _init_unet(self, sub_folder="unet"):
         self.logger.info(f"Initializing UNet from pretrained model: {self.schema.pretrained_model_name_or_path}")
@@ -110,3 +123,62 @@ class BaseTrainer:
             subfolder=sub_folder,
             variant=self.schema.variant,
         )
+
+    def _allow_tf32(self):
+        if self.schema.allow_tf32:
+            torch.backends.cuda.matmul.allow_tf32 = True
+
+    def _init_optimizer(self, parameter_to_optimize):
+        if self.schema.optimizer == OptimizerEnum.ADAMW:
+            return torch.optim.AdamW(
+                params=parameter_to_optimize,
+                lr=self.schema.learning_rate,
+                betas=(self.schema.beta1, self.schema.beta2),
+                weight_decay=self.schema.weight_decay,
+                eps=self.schema.epsilon,
+            )
+        elif self.schema.optimizer == OptimizerEnum.ADAMW_8BIT:
+            from bitsandbytes.optim import Adam8bit
+
+            return Adam8bit(
+                params=parameter_to_optimize,
+                lr=self.schema.learning_rate,
+                betas=(self.schema.beta1, self.schema.beta2),
+                weight_decay=self.schema.weight_decay,
+                eps=self.schema.epsilon,
+            )
+        elif self.schema.optimizer == OptimizerEnum.LION:
+            from bitsandbytes.optim import Lion
+
+            return Lion(
+                params=parameter_to_optimize,
+                lr=self.schema.learning_rate,
+                betas=(self.schema.beta1, self.schema.beta2),
+                weight_decay=self.schema.weight_decay,
+            )
+        else:
+            raise ValueError(f"Unsupported optimizer: {self.schema.optimizer}")
+
+    def _init_learning_rate_scheduler(self, optimizer):
+        num_warmup_steps = self.schema.learning_rate_warmup_steps * self.accelerator.num_processes
+        num_training_steps = self.schema.max_train_steps * self.accelerator.num_processes
+        logger.info(
+            f"Initializing learning rate scheduler: {self.schema.learning_rate_scheduler}, warmup steps: {num_warmup_steps}, training steps: {num_training_steps}"
+        )
+        return get_scheduler(
+            name=self.schema.learning_rate_scheduler,
+            optimizer=optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=num_training_steps,
+        )
+
+    def _get_weight_dtype(self):
+        # For mixed precision training we cast all non-trainable weights
+        # (vae, non-lora text_encoder and non-lora unet) to half-precision
+        # as these weights are only used for inference, keeping weights in full precision is not required.
+        weight_dtype = torch.float32
+        if self.schema.mixed_precision == "fp16":
+            weight_dtype = torch.float16
+        elif self.schema.mixed_precision == "bf16":
+            weight_dtype = torch.bfloat16
+        return weight_dtype

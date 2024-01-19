@@ -19,6 +19,10 @@ class ModelConfigurationSchema(BaseModel):
             " More details: https://github.com/huggingface/diffusers/pull/4038."
         ),
     )
+    no_half_vae: bool = Field(
+        default=False,
+        description="Do not use half precision for the VAE.",
+    )
     variant: VariantTypeEnum | None = Field(
         default=None,
         description="Variant of the model files of the pretrained model identifier from huggingface.co/models. for ex. 'fp16'",

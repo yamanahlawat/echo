@@ -36,10 +36,6 @@ class TrainingSetupSchema(BaseModel):
         default=1.0,
         description="Max gradient norm.",
     )
-    tokenizer_max_length: int | None = Field(
-        default=None,
-        description="The maximum length of the tokenizer. If not set, will default to the tokenizer's max length.",
-    )
 
     @field_validator("output_dir")
     def validate_output_dir(cls, value: Path) -> Path:
