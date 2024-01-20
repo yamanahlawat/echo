@@ -23,7 +23,7 @@ deepface = "^0.0.81"
 [tool.poetry.group.dev.dependencies]
 ipdb = "^0.13.13"
 ipython = "^8.20.0"
-ruff = "^0.1.12"
+ruff = "^0.1.14"
 pre-commit = "^3.6.0"
 
 [build-system]
