@@ -62,6 +62,10 @@ class ClassSchema(BaseModel):
             " 1.10. and an Nvidia Ampere GPU."
         ),
     )
+    class_labels_conditioning: str | None = Field(
+        default=None,
+        description="The optional `class_label` conditioning to pass to the unet, available values are `timesteps`.",
+    )
 
     @model_validator(mode="after")
     def validate_with_prior_preservation_loss(self):
