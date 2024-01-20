@@ -5,11 +5,10 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
-from diffusers import AutoencoderKL, DDPMScheduler, UNet2DConditionModel
+from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
 from diffusers.utils.logging import set_verbosity_error, set_verbosity_info
-from diffusers.utils.torch_utils import is_compiled_module
-from huggingface_hub import create_repo
+from huggingface_hub import create_repo, upload_folder
 from loguru import logger as train_logger
 from pydantic import BaseModel
 
@@ -189,11 +188,6 @@ class BaseTrainer:
             weight_dtype = torch.bfloat16
         return weight_dtype
 
-    def _unwrap_model(self, model):
-        model = self.accelerator.unwrap_model(model)
-        model = model._orig_mod if is_compiled_module(model) else model
-        return model
-
     def _get_all_checkpoints_paths(self):
         return sorted(self.schema.output_dir.glob("checkpoint-*"))
 
@@ -223,3 +217,58 @@ class BaseTrainer:
                 )
                 for checkpoint in checkpoints_to_remove:
                     checkpoint.unlink()
+
+    def _get_scheduler_args(self, pipeline):
+        # We train on the simplified learning objective. If we were previously predicting a variance,
+        # we need the scheduler to ignore it
+        scheduler_args = {}
+
+        if "variance_type" in pipeline.scheduler.config:
+            variance_type = pipeline.scheduler.config.variance_type
+
+            if variance_type in ["learned", "learned_range"]:
+                variance_type = "fixed_small"
+
+            scheduler_args["variance_type"] = variance_type
+        return scheduler_args
+
+    def _save_model_card(self, images, pipeline):
+        img_str = ""
+        for i, image in enumerate(images):
+            image.save(self.schema.output_dir / f"image_{i}.png")
+            img_str += f"![img_{i}](./image_{i}.png)\n"
+
+        repo_config = f"""
+            ---
+            base_model: {self.schema.pretrained_model_name_or_path}
+            instance_prompt: {self.schema.instance_prompt}
+            tags:
+            - {'stable-diffusion' if isinstance(pipeline, StableDiffusionPipeline) else 'if'}
+            - {'stable-diffusion-diffusers' if isinstance(pipeline, StableDiffusionPipeline) else 'if-diffusers'}
+            - text-to-image
+            - diffusers
+            - dreambooth
+            inference: true
+            ---
+        """
+
+        model_card = f"""
+            # DreamBooth - {self.repo_id}
+
+            This is a dreambooth model derived from {self.schema.pretrained_model_name_or_path}.
+            The weights were trained on {self.schema.instance_prompt} using [DreamBooth](https://dreambooth.github.io/).
+            You can find some example images in the following. \n
+            {img_str}
+        """
+
+        with open(self.schema.output_dir / "README.md", "w") as readme_file:
+            readme_file.write(repo_config + model_card)
+
+    def _upload_repo_to_hub(self):
+        upload_folder(
+            repo_id=self.repo_id,
+            folder_path=self.schema.output_dir,
+            commit_message=f"Trained DreamBooth model {self.schema.instance_prompt}",
+            ignore_patterns=["step_*", "epoch_*"],
+            token=self.schema.hub_token,
+        )
