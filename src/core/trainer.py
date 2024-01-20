@@ -1,6 +1,5 @@
 import logging
 
-import diffusers
 import torch
 import transformers
 from accelerate import Accelerator
@@ -8,6 +7,8 @@ from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
 from diffusers import AutoencoderKL, DDPMScheduler, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
+from diffusers.utils.logging import set_verbosity_error, set_verbosity_info
+from diffusers.utils.torch_utils import is_compiled_module
 from huggingface_hub import create_repo
 from loguru import logger as train_logger
 from pydantic import BaseModel
@@ -56,10 +57,10 @@ class BaseTrainer:
         logger.info(self.accelerator.state, main_process_only=False)
         if self.accelerator.is_local_main_process:
             transformers.utils.logging.set_verbosity_warning()
-            diffusers.utils.logging.set_verbosity_info()
+            set_verbosity_info()
         else:
             transformers.utils.logging.set_verbosity_error()
-            diffusers.utils.logging.set_verbosity_error()
+            set_verbosity_error()
 
     def _init_seed(self):
         if self.schema.seed:
@@ -118,11 +119,16 @@ class BaseTrainer:
 
     def _init_unet(self, sub_folder="unet"):
         self.logger.info(f"Initializing UNet from pretrained model: {self.schema.pretrained_model_name_or_path}")
-        return UNet2DConditionModel.from_pretrained(
+        unet = UNet2DConditionModel.from_pretrained(
             pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
             subfolder=sub_folder,
             variant=self.schema.variant,
         )
+        if unet.dtype != torch.float32:
+            raise ValueError(
+                f"Unet loaded as datatype {unet.dtype}. Please make sure to always have all model weights in full float32 precision."
+            )
+        return unet
 
     def _allow_tf32(self):
         if self.schema.allow_tf32:
@@ -182,3 +188,38 @@ class BaseTrainer:
         elif self.schema.mixed_precision == "bf16":
             weight_dtype = torch.bfloat16
         return weight_dtype
+
+    def _unwrap_model(self, model):
+        model = self.accelerator.unwrap_model(model)
+        model = model._orig_mod if is_compiled_module(model) else model
+        return model
+
+    def _get_all_checkpoints_paths(self):
+        return sorted(self.schema.output_dir.glob("checkpoint-*"))
+
+    def _resume_from_checkpoint(self, num_update_steps_per_epoch):
+        if self.schema.resume_from_checkpoint == "latest":
+            checkpoint_path = self._get_all_checkpoints_paths()[-1]
+        else:
+            checkpoint_path = self.schema.resume_from_checkpoint
+        # TODO: check if checkpoint doesn't exist should we start the training from start or raise error
+        if not checkpoint_path.exists():
+            raise ValueError(f"Checkpoint path `{self.schema.resume_from_checkpoint}` does not exist.")
+        logger.info(f"Resuming training from checkpoint: {checkpoint_path}")
+        self.accelerator.load_state(checkpoint_path)
+        global_step = int(checkpoint_path.stem.split("-")[-1])
+        first_epoch = global_step // num_update_steps_per_epoch
+        # since initial global step is same as global step, we return it twice
+        return global_step, global_step, first_epoch
+
+    def _handle_checkpoint_total_limit(self):
+        if self.schema.checkpoints_total_limit:
+            all_checkpoints_paths = self._get_all_checkpoints_paths()
+            if len(all_checkpoints_paths) > self.schema.checkpoints_total_limit:
+                no_of_checkpoints_to_remove = len(all_checkpoints_paths) - self.schema.checkpoints_total_limit + 1
+                checkpoints_to_remove = all_checkpoints_paths[:no_of_checkpoints_to_remove]
+                logger.info(
+                    f"Total Checkpoints: {len(all_checkpoints_paths)}, Removing checkpoints: {checkpoints_to_remove}"
+                )
+                for checkpoint in checkpoints_to_remove:
+                    checkpoint.unlink()
