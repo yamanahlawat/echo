@@ -1,3 +1,4 @@
+import importlib
 import itertools
 import math
 import os
@@ -5,9 +6,12 @@ import platform
 
 import accelerate
 import diffusers
+import numpy as np
 import torch
 import torch.nn.functional as F
-from diffusers import UNet2DConditionModel
+import wandb
+from accelerate.utils.dataclasses import LoggerType
+from diffusers import StableDiffusionPipeline, UNet2DConditionModel
 from diffusers.training_utils import compute_snr
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
@@ -84,7 +88,9 @@ class DreamboothTrainer(BaseTrainer):
     def _save_model_hook(self, models, weights, output_dir):
         if self.accelerator.is_main_process:
             for model in models:
-                sub_dir = "unet" if isinstance(model, type(self._unwrap_model(self.unet))) else "text_encoder"
+                sub_dir = (
+                    "unet" if isinstance(model, type(self.accelerator.unwrap_model(self.unet))) else "text_encoder"
+                )
                 model.save_pretrained(output_dir / sub_dir)
                 # make sure to pop weight so that corresponding model is not saved again
                 weights.pop()
@@ -94,7 +100,7 @@ class DreamboothTrainer(BaseTrainer):
             # pop models so that they are not loaded again
             model = models.pop()
 
-            if isinstance(model, type(self._unwrap_model(self.text_encoder))):
+            if isinstance(model, type(self.accelerator.unwrap_model(self.text_encoder))):
                 # load transformers style into model
                 load_model = self.text_encoder_model_class.from_pretrained(
                     pretrained_model_name_or_path=input_dir, subfolder="text_encoder"
@@ -303,6 +309,87 @@ class DreamboothTrainer(BaseTrainer):
             self.logger.info(f"Prior Preservation Enabled: {self.schema.with_prior_preservation}")
             self.logger.info(f"Prior Preservation Loss Weight: {self.schema.prior_loss_weight}")
 
+    def _validate(self, global_step: int):
+        self.logger.info("***** Running Validation *****")
+        self.logger.info(f"Generating {self.schema.num_validation_images} images for validation")
+        pipeline = StableDiffusionPipeline.from_pretrained(
+            pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+            tokenizer=self.tokenizer,
+            text_encoder=self.text_encoder,
+            unet=self.unet,
+            variant=self.schema.variant,
+            torch_dtype=self.weight_dtype,
+            safety_checker=None,
+            vae=self.vae,
+        )
+
+        scheduler_args = self._get_scheduler_args(pipeline=pipeline)
+
+        module = importlib.import_module("diffusers")
+        scheduler_class = getattr(module, self.schema.validation_scheduler.value)
+        pipeline.scheduler = scheduler_class.from_config(pipeline.scheduler.config, **scheduler_args)
+        pipeline = pipeline.to(device=self.accelerator.device)
+        pipeline.set_progress_bar_config(disable=True)
+
+        # TODO: add pre-computed text embeddings
+        pipeline_args = {
+            "prompt": self.schema.validation_prompt,
+            "negative_prompt": self.schema.validation_negative_prompt,
+        }
+
+        generator = (
+            torch.Generator(device=self.accelerator.device).manual_seed(seed=self.schema.seed)
+            if self.schema.seed
+            else None
+        )
+
+        images = []
+        for _ in tqdm(range(self.schema.num_validation_images)):
+            with torch.autocast("cuda"):
+                image = pipeline(
+                    **pipeline_args,
+                    generator=generator,
+                    num_inference_steps=self.schema.validation_num_inference_steps,
+                    guidance_scale=self.schema.validation_guidance_scale,
+                )
+                images.append(image)
+
+        for tracker in self.accelerator.trackers:
+            if tracker.name == LoggerType.TENSORBOARD.value:
+                np_images = np.stack([np.asarray(image) for image in images])
+                tracker.writer.add_images(
+                    "validation",
+                    np_images,
+                    global_step=global_step,
+                    dataformats="NHWC",
+                )
+            if tracker.name == LoggerType.WANDB.value:
+                tracker.log(
+                    {
+                        "validation": [
+                            wandb.Image(image, caption=f"{i}: {self.schema.validation_prompt}")
+                            for i, image in enumerate(images)
+                        ]
+                    }
+                )
+        del pipeline
+        torch.cuda.empty_cache()
+        return images
+
+    def _save_trained_model(self):
+        if self.accelerator.is_main_process:
+            pipeline = StableDiffusionPipeline.from_pretrained(
+                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+                unet=self.accelerator.unwrap_model(self.unet),
+                variant=self.schema.variant,
+                tokenizer=self.accelerator.unwrap_model(self.tokenizer),
+            )
+            scheduler_args = self._get_scheduler_args(pipeline=pipeline)
+            pipeline.scheduler = pipeline.scheduler.from_config(pipeline.scheduler.config, **scheduler_args)
+            pipeline.save_pretrained(save_directory=self.schema.output_dir)
+            self.logger.info(f"Saving trained model to {self.schema.output_dir}")
+            return pipeline
+
     def train(self):
         train_dataloader, optimizer, learning_rate_scheduler, num_update_steps_per_epoch = self.setup()
         total_batch_size = (
@@ -387,7 +474,7 @@ class DreamboothTrainer(BaseTrainer):
                         text_encoder_use_attention_mask=self.schema.text_encoder_use_attention_mask,
                     )
 
-                    if self._unwrap_model(self.unet).config.in_channels == channels * 2:
+                    if self.accelerator.unwrap_model(self.unet).config.in_channels == channels * 2:
                         noisy_model_input = torch.cat([noisy_model_input, noisy_model_input], dim=1)
 
                     if self.schema.class_labels_conditioning == "timesteps":
@@ -451,10 +538,34 @@ class DreamboothTrainer(BaseTrainer):
                 if self.accelerator.sync_gradients:
                     progress_bar.update(1)
                     global_step += 1
+                    if self.accelerator.is_main_process:
+                        if global_step % self.schema.checkpointing_steps == 0:
+                            if self.schema.checkpoints_total_limit:
+                                self._handle_checkpoint_total_limit()
 
-                if self.schema.checkpoints_total_limit:
-                    self._handle_checkpoint_total_limit()
+                            save_path = self.schema.output_dir / f"checkpoint-{global_step}"
+                            self.accelerator.save_state(save_path)
+                            self.logger.info(f"Saving checkpoint at {save_path}")
 
-                save_path = self.schema.output_dir / f"checkpoint-{global_step}"
-                self.accelerator.save_state(save_path)
-                self.logger.info(f"Saving checkpoint at {save_path}")
+                        images = []
+
+                        if self.schema.validation_prompt and global_step % self.schema.validation_steps == 0:
+                            images = self._validate()
+
+                logs = {"loss": loss.detach().item(), "lr": learning_rate_scheduler.get_last_lr()[0]}
+                progress_bar.set_postfix(**logs)
+                self.accelerator.log(logs, step=global_step)
+
+                if global_step > self.schema.max_train_steps:
+                    epoch_iterator.close()
+                    break
+
+        self.accelerator.wait_for_everyone()
+        if self.accelerator.is_main_process:
+            pipeline = self._save_trained_model()
+            if self.schema.push_to_hub:
+                self._save_model_card(images=images, pipeline=pipeline)
+                self._upload_repo_to_hub()
+
+        self.accelerator.end_training()
+        self.logger.info("***** Training finished *****")
