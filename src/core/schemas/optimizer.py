@@ -72,6 +72,7 @@ class OptimizerSchema(BaseModel):
                 raise ValueError(error) from e
         if value == OptimizerEnum.LION:
             try:
+                # TODO: check whether to use Lion from pytorch_optimizer or from bitsandbytes
                 from pytorch_optimizer import Lion  # noqa: F401
             except ImportError as e:
                 error = "Make sure to install `pytorch_optimizer` (pip install pytorch-optimizer) if you want to use it for Lion optimizer."
