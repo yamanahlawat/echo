@@ -40,7 +40,7 @@ class ClassSchema(BaseModel):
         default=None,
         description="Path to the directory containing the training class images.",
     )
-    with_prior_preservation_loss: bool = Field(
+    with_prior_preservation: bool = Field(
         default=False,
         description="Whether to use prior preservation loss.",
     )
@@ -68,22 +68,22 @@ class ClassSchema(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_with_prior_preservation_loss(self):
-        if self.with_prior_preservation_loss:
+    def validate_with_prior_preservation(self):
+        if self.with_prior_preservation:
             if not self.class_data_dir:
-                error = "`class_data_dir` must be specified if `with_prior_preservation_loss` is True"
+                error = "`class_data_dir` must be specified if `with_prior_preservation` is True"
                 logger.error(error)
                 raise ValueError(error)
             if not self.class_prompt:
-                error = "`class_prompt` must be specified if `with_prior_preservation_loss` is True"
+                error = "`class_prompt` must be specified if `with_prior_preservation` is True"
                 logger.error(error)
                 raise ValueError(error)
         elif self.class_data_dir or self.class_prompt:
             logger.warning(
-                "`class_data_dir` and class_prompt will be ignored as `with_prior_preservation_loss` is set to False."
+                "`class_data_dir` and class_prompt will be ignored as `with_prior_preservation` is set to False."
             )
 
-        if not self.class_data_dir.exists():
+        if self.class_data_dir and not self.class_data_dir.exists():
             logger.warning(f"`class_data_dir` does not exist: {self.class_data_dir}, creating it.")
             self.class_data_dir.mkdir(parents=True, exist_ok=True)
         return self

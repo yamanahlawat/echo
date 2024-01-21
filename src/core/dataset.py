@@ -71,7 +71,7 @@ class DreamBoothDataset(Dataset):
         if self.encoder_hidden_states:
             example["instance_prompt_ids"] = self.encoder_hidden_states
         else:
-            text_inputs = self.tokenize_prompt(tokenizer=self.tokenizer, prompt=self.instance_prompt)
+            text_inputs = self.tokenize_prompt(prompt=self.instance_prompt)
             example["instance_prompt_ids"] = text_inputs.input_ids
             example["instance_attention_mask"] = text_inputs.attention_mask
 
@@ -88,7 +88,7 @@ class DreamBoothDataset(Dataset):
             if self.class_prompt_encoder_hidden_states:
                 example["class_prompt_ids"] = self.class_prompt_encoder_hidden_states
             else:
-                text_inputs = self.tokenize_prompt(tokenizer=self.tokenizer, prompt=self.class_prompt)
+                text_inputs = self.tokenize_prompt(prompt=self.class_prompt)
                 example["class_prompt_ids"] = text_inputs.input_ids
                 example["class_attention_mask"] = text_inputs.attention_mask
         return example

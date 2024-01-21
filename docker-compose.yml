@@ -6,7 +6,10 @@ services:
       context: .
       dockerfile: ./docker/DockerFile
     volumes:
-      - ./:/app
+      - ./:/echo
+    command: tail -f /dev/null
+    stdin_open: true
+    tty: true
     deploy:
       resources:
         reservations:
