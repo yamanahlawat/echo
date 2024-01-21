@@ -83,6 +83,8 @@ class DreamboothTrainer(BaseTrainer):
             raise ValueError(
                 f"Text encoder loaded as datatype {text_encoder.dtype}. Please make sure to always have all model weights in full float32 precision."
             )
+        if not self.schema.train_text_encoder:
+            text_encoder.requires_grad_(False)
         return text_encoder
 
     def _save_model_hook(self, models, weights, output_dir):
@@ -141,9 +143,6 @@ class DreamboothTrainer(BaseTrainer):
         return prompt_embeds
 
     def setup(self):
-        if not self.schema.train_text_encoder:
-            self.text_encoder.requires_grad_(False)
-
         if self.schema.gradient_checkpointing:
             self.unet.enable_gradient_checkpointing()
             if self.schema.train_text_encoder:
@@ -164,7 +163,7 @@ class DreamboothTrainer(BaseTrainer):
 
         optimizer = self._init_optimizer(parameter_to_optimize=parameters_to_optimize)
 
-        # todo: add pre_compute_text_embeddings
+        # TODO: add pre_compute_text_embeddings
 
         train_dataset = DreamBoothDataset(
             height=self.schema.height,
@@ -345,7 +344,7 @@ class DreamboothTrainer(BaseTrainer):
 
         images = []
         for _ in tqdm(range(self.schema.num_validation_images)):
-            with torch.autocast("cuda"):
+            with torch.autocast(self.accelerator.device):
                 image = pipeline(
                     **pipeline_args,
                     generator=generator,
