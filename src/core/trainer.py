@@ -11,8 +11,10 @@ from diffusers.utils.logging import set_verbosity_error, set_verbosity_info
 from huggingface_hub import create_repo, upload_folder
 from loguru import logger as train_logger
 from pydantic import BaseModel
+from tqdm.auto import tqdm
 
 from src.core.constants import ModelFileExtensions, OptimizerEnum
+from src.core.dataset import PromptDataset
 
 logger = get_logger(__name__)
 
@@ -26,6 +28,7 @@ class BaseTrainer:
         self._init_logging()
         self.logger = logger
         self._init_seed()
+        self._generate_class_images()
         self.repo_id = self._create_model_repo()
         self.noise_scheduler = self._init_noise_scheduler()
         self.vae = self._init_vae()
@@ -65,6 +68,47 @@ class BaseTrainer:
         if self.schema.seed:
             logger.info("Setting reproducible Training seed: {self.schema.seed}")
             set_seed(seed=self.schema.seed)
+
+    def _generate_class_images(self):
+        existing_class_images = len(list(self.schema.class_data_dir.iterdir()))
+        if existing_class_images < self.schema.num_class_images:
+            num_new_images = self.schema.num_class_images - existing_class_images
+            logger.info(f"Generating {num_new_images} additional class images using prompt: {self.schema.class_prompt}")
+            torch_dtype = torch.float16 if self.accelerator.device.type == "cuda" else torch.float32
+            if self.schema.prior_generation_precision == "fp32":
+                torch_dtype = torch.float32
+            elif self.schema.prior_generation_precision == "fp16":
+                torch_dtype = torch.float16
+            elif self.schema.prior_generation_precision == "bf16":
+                torch_dtype = torch.bfloat16
+            pipeline = StableDiffusionPipeline.from_pretrained(
+                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+                torch_dtype=torch_dtype,
+                variant=self.schema.variant,
+                safety_checker=None,
+            )
+            pipeline.set_progress_bar_config(disable=True)
+            sample_dataset = PromptDataset(prompt=self.schema.class_prompt, num_samples=num_new_images)
+            sample_dataloader = torch.utils.data.DataLoader(
+                sample_dataset,
+                batch_size=self.schema.sample_batch_size,
+            )
+            sample_dataloader = self.accelerator.prepare(sample_dataloader)
+            pipeline.to(device=self.accelerator.device)
+
+            for item in tqdm(
+                sample_dataloader, desc="Generating class images", disable=not self.accelerator.is_local_main_process
+            ):
+                images = pipeline(prompt=item["prompt"]).images
+                for i, image in enumerate(images):
+                    image.save(self.schema.class_data_dir / f"image_{i}.png")
+
+            del pipeline
+            torch.cuda.empty_cache()
+        else:
+            logger.info(
+                f"Found {existing_class_images} class images, which is more than the required {self.schema.num_class_images}."
+            )
 
     def _create_model_repo(self):
         if self.schema.push_to_hub:
