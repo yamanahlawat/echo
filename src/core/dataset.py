@@ -2,12 +2,13 @@ from pathlib import Path
 
 from accelerate.logging import get_logger
 from PIL import Image, ImageOps
+from torch.utils.data import Dataset
 from torchvision import transforms
 
 logger = get_logger(__name__)
 
 
-class DreamBoothDataset:
+class DreamBoothDataset(Dataset):
     def __init__(
         self,
         height: int,
@@ -91,3 +92,15 @@ class DreamBoothDataset:
                 example["class_prompt_ids"] = text_inputs.input_ids
                 example["class_attention_mask"] = text_inputs.attention_mask
         return example
+
+
+class PromptDataset(Dataset):
+    def __init__(self, prompt, num_samples):
+        self.prompt = prompt
+        self.num_samples = num_samples
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, index):
+        return {"prompt": self.prompt, "index": index}

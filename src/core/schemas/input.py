@@ -82,4 +82,8 @@ class ClassSchema(BaseModel):
             logger.warning(
                 "`class_data_dir` and class_prompt will be ignored as `with_prior_preservation_loss` is set to False."
             )
+
+        if not self.class_data_dir.exists():
+            logger.warning(f"`class_data_dir` does not exist: {self.class_data_dir}, creating it.")
+            self.class_data_dir.mkdir(parents=True, exist_ok=True)
         return self
