@@ -233,7 +233,9 @@ class DreamboothTrainer(BaseTrainer):
         # We need to initialize the trackers we use, and also store our configuration.
         # The trackers initializes automatically on the main process.
         if self.accelerator.is_main_process:
-            self.accelerator.init_trackers(project_name=self.schema.output_dir.name, config=self.schema.to_dict())
+            self.accelerator.init_trackers(
+                project_name=self.schema.output_dir.name, config=self.schema.model_dump(mode="json")
+            )
 
         return train_dataloader, optimizer, learning_rate_scheduler, num_update_steps_per_epoch
 
@@ -410,7 +412,7 @@ class DreamboothTrainer(BaseTrainer):
             first_epoch = 0
 
         progress_bar = tqdm(
-            range(self.max_train_steps),
+            range(self.schema.max_train_steps),
             initial=initial_global_step,
             desc="Steps",
             # Only show the progress bar once on each machine.
