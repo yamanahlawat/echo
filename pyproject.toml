@@ -8,7 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
 accelerate = "^0.25.0"
-transformers = "^4.36.2"
+transformers = "^4.37.0"
 datasets = "^2.16.1"
 diffusers = "^0.25.0"
 peft = "^0.7.1"
