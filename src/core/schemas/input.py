@@ -1,9 +1,8 @@
 from pathlib import Path
 
+from accelerate.utils.dataclasses import PrecisionType
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator, model_validator
-
-from src.core.constants import PrecisionTypeEnum
 
 
 class InstanceSchema(BaseModel):
@@ -55,8 +54,8 @@ class ClassSchema(BaseModel):
             " class_data_dir, additional images will be sampled with class_prompt."
         ),
     )
-    prior_generation_precision: PrecisionTypeEnum = Field(
-        default=PrecisionTypeEnum.NO,
+    prior_generation_precision: PrecisionType = Field(
+        default=PrecisionType.NO,
         description=(
             "Choose prior generation precision between fp32, fp16 and bf16 (bfloat16). Bf16 requires PyTorch >="
             " 1.10. and an Nvidia Ampere GPU."

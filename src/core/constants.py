@@ -38,23 +38,6 @@ class LearningRateSchedulerEnum(BaseEnum):
     CONSTANT_WITH_WARMUP = "constant_with_warmup"
 
 
-class PrecisionTypeEnum(BaseEnum):
-    """
-    Enum for specifying the precision type for training.
-    - NO: No specific precision.
-    - FP8: 8-bit floating-point precision.
-    - FP16: 16-bit floating-point precision.
-    - BF16: Brain floating-point format with 16-bit precision.
-    - FP32: 32-bit floating-point precision.
-    """
-
-    NO = "no"
-    FP8 = "fp8"
-    FP16 = "fp16"
-    BF16 = "bf16"
-    FP32 = "fp32"
-
-
 class SchedulerEnum(BaseEnum):
     """
     Enum for specifying the scheduler type.
