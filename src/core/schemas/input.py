@@ -68,7 +68,7 @@ class ClassSchema(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_with_prior_preservation(self):
+    def validate_class_schema(self):
         if self.with_prior_preservation:
             if not self.class_data_dir:
                 error = "`class_data_dir` must be specified if `with_prior_preservation` is True"

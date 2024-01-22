@@ -119,7 +119,7 @@ class DreamboothTrainer(BaseTrainer):
 
     def _tokenize_prompt(self, prompt: str, add_special_tokens: bool = False):
         return self.tokenizer(
-            prompt=prompt,
+            text=prompt,
             padding="max_length",
             max_length=self.tokenizer.model_max_length,
             truncation=True,
@@ -276,6 +276,7 @@ class DreamboothTrainer(BaseTrainer):
 
         # start of the training process
         self.logger.info("***** Training Configuration *****")
+        self.logger.info(f"Mix precision: {self.schema.mixed_precision}")
         self.logger.info(f"Num examples = {len(train_dataloader.dataset)}")
         self.logger.info(f"Num batches each epoch = {len(train_dataloader)}")
         self.logger.info(f"Num Epochs = {self.schema.num_train_epochs}")
@@ -457,7 +458,7 @@ class DreamboothTrainer(BaseTrainer):
 
                     # sample a random timestep for each image in the batch
                     timesteps = torch.randint(
-                        0, self.noise_scheduler.num_train_timesteps, (bsz,), device=model_input.device
+                        0, self.noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device
                     )
 
                     timesteps = timesteps.long()
