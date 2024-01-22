@@ -5,6 +5,7 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
+from accelerate.utils.dataclasses import PrecisionType
 from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
 from diffusers.utils.logging import set_verbosity_error, set_verbosity_info
@@ -13,7 +14,7 @@ from loguru import logger as train_logger
 from pydantic import BaseModel
 from tqdm.auto import tqdm
 
-from src.core.constants import ModelFileExtensions, OptimizerEnum, PrecisionTypeEnum
+from src.core.constants import ModelFileExtensions, OptimizerEnum
 from src.core.dataset import PromptDataset
 
 logger = get_logger(__name__)
@@ -226,9 +227,9 @@ class BaseTrainer:
         # (vae, non-lora text_encoder and non-lora unet) to half-precision
         # as these weights are only used for inference, keeping weights in full precision is not required.
         weight_dtype = torch.float32
-        if self.schema.mixed_precision == PrecisionTypeEnum.FP16:
+        if self.schema.mixed_precision == PrecisionType.FP16:
             weight_dtype = torch.float16
-        elif self.schema.mixed_precision == PrecisionTypeEnum.BF16:
+        elif self.schema.mixed_precision == PrecisionType.BF16:
             weight_dtype = torch.bfloat16
         return weight_dtype
 

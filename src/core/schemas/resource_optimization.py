@@ -1,8 +1,7 @@
+from accelerate.utils.dataclasses import PrecisionType
 from diffusers.utils.import_utils import is_xformers_available
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator
-
-from src.core.constants import PrecisionTypeEnum
 
 
 class ResourceOptimizationSchema(BaseModel):
@@ -11,8 +10,8 @@ class ResourceOptimizationSchema(BaseModel):
     memory-efficient attention options, gradient accumulation steps, and others.
     """
 
-    mixed_precision: PrecisionTypeEnum = Field(
-        default=PrecisionTypeEnum.NO,
+    mixed_precision: PrecisionType = Field(
+        default=PrecisionType.NO,
         description=(
             "Whether to use mixed precision. Choose between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >="
             " 1.10.and an Nvidia Ampere GPU.  Default to the value of accelerate config of the current system or the"
