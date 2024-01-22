@@ -10,6 +10,9 @@ services:
     command: tail -f /dev/null
     stdin_open: true
     tty: true
+    # Increase shared memory size to avoid 'bus error' in data-intensive tasks
+    # ex: using multiple workers for dataloader. Increase accordingly
+    shm_size: '2gb'
     deploy:
       resources:
         reservations:

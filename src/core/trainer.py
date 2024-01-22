@@ -13,7 +13,7 @@ from loguru import logger as train_logger
 from pydantic import BaseModel
 from tqdm.auto import tqdm
 
-from src.core.constants import ModelFileExtensions, OptimizerEnum
+from src.core.constants import ModelFileExtensions, OptimizerEnum, PrecisionTypeEnum
 from src.core.dataset import PromptDataset
 
 logger = get_logger(__name__)
@@ -226,9 +226,9 @@ class BaseTrainer:
         # (vae, non-lora text_encoder and non-lora unet) to half-precision
         # as these weights are only used for inference, keeping weights in full precision is not required.
         weight_dtype = torch.float32
-        if self.schema.mixed_precision == "fp16":
+        if self.schema.mixed_precision == PrecisionTypeEnum.FP16:
             weight_dtype = torch.float16
-        elif self.schema.mixed_precision == "bf16":
+        elif self.schema.mixed_precision == PrecisionTypeEnum.BF16:
             weight_dtype = torch.bfloat16
         return weight_dtype
 
