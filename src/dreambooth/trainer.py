@@ -314,6 +314,7 @@ class DreamboothTrainer(BaseTrainer):
     def _validate(self, global_step: int):
         self.logger.info("***** Running Validation *****")
         self.logger.info(f"Generating {self.schema.num_validation_images} images for validation")
+        self.vae = self.vae.to(device=self.vae_dtype)
         pipeline = StableDiffusionPipeline.from_pretrained(
             pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
             tokenizer=self.tokenizer,
@@ -347,14 +348,13 @@ class DreamboothTrainer(BaseTrainer):
 
         images = []
         for _ in tqdm(range(self.schema.num_validation_images)):
-            with torch.autocast(self.accelerator.device):
-                image = pipeline(
-                    **pipeline_args,
-                    generator=generator,
-                    num_inference_steps=self.schema.validation_num_inference_steps,
-                    guidance_scale=self.schema.validation_guidance_scale,
-                )
-                images.append(image)
+            result = pipeline(
+                **pipeline_args,
+                generator=generator,
+                num_inference_steps=self.schema.validation_num_inference_steps,
+                guidance_scale=self.schema.validation_guidance_scale,
+            )
+            images.append(result.images[0])
 
         for tracker in self.accelerator.trackers:
             if tracker.name == LoggerType.TENSORBOARD.value:
@@ -404,6 +404,10 @@ class DreamboothTrainer(BaseTrainer):
             total_batch_size=total_batch_size,
         )
 
+        # Cache Latents
+        if self.schema.cache_latents:
+            cached_latents = self._cache_latents(train_dataloader=train_dataloader)
+
         # Check if continuing training from a checkpoint
         if self.schema.resume_from_checkpoint:
             global_step, initial_global_step, first_epoch = self._resume_from_checkpoint(num_update_steps_per_epoch)
@@ -430,15 +434,15 @@ class DreamboothTrainer(BaseTrainer):
                 desc="Iteration",
                 disable=not self.accelerator.is_local_main_process,
             )
-            for batch in epoch_iterator:
+            for step, batch in enumerate(epoch_iterator):
                 with self.accelerator.accumulate(self.unet):
-                    pixel_values = batch["pixel_values"].to(dtype=self.weight_dtype)
-                    if self.vae:
+                    if self.schema.cache_latents:
                         # Convert images to latent space
-                        model_input = self.vae.encode(pixel_values).latent_dist.sample()
-                        model_input = model_input * self.vae.config.scaling_factor
+                        model_input = cached_latents[step].sample()
                     else:
-                        model_input = pixel_values
+                        pixel_values = batch["pixel_values"].to(dtype=self.weight_dtype)
+                        model_input = self.vae.encode(pixel_values).latent_dist.sample()
+                    model_input = model_input * self.vae_scaling_factor
 
                     # sample noise for the diffusion process
                     noise = (
@@ -552,7 +556,7 @@ class DreamboothTrainer(BaseTrainer):
                         images = []
 
                         if self.schema.validation_prompt and global_step % self.schema.validation_steps == 0:
-                            images = self._validate()
+                            images = self._validate(global_step=global_step)
 
                 logs = {"loss": loss.detach().item(), "lr": learning_rate_scheduler.get_last_lr()[0]}
                 progress_bar.set_postfix(**logs)
