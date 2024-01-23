@@ -26,6 +26,7 @@ class BaseTrainer:
         # we must initialize the accelerate state before using the logging utility.
         self.accelerator = self._init_accelerator()
         self.weight_dtype = self._get_weight_dtype()
+        self.vae_dtype = torch.float32 if self.schema.no_half_vae else self.weight_dtype
         self._init_logging()
         self.logger = logger
         self._init_seed()
@@ -33,6 +34,7 @@ class BaseTrainer:
         self.repo_id = self._create_model_repo()
         self.noise_scheduler = self._init_noise_scheduler()
         self.vae = self._init_vae()
+        self.vae_scaling_factor = self.vae.config.scaling_factor
         self.unet = self._init_unet()
 
         # Enable TF32 for faster training on Ampere GPUs,
@@ -156,9 +158,7 @@ class BaseTrainer:
             )
         if vae:
             vae.requires_grad_(False)
-        vae_dtype = torch.float32 if self.schema.no_half_vae else self.weight_dtype
-        # TODO: check when to move to cuda
-        vae.to(device=self.accelerator.device, dtype=vae_dtype)
+        vae.to(device=self.accelerator.device, dtype=self.vae_dtype)
         return vae
 
     def _init_unet(self, sub_folder="unet"):
@@ -317,3 +317,16 @@ class BaseTrainer:
             ignore_patterns=["step_*", "epoch_*"],
             token=self.schema.hub_token,
         )
+
+    def _cache_latents(self, train_dataloader):
+        cached_latents = []
+        for batch in tqdm(train_dataloader, desc="Caching latents"):
+            with torch.no_grad():
+                latents = batch["pixel_values"].to(dtype=self.vae_dtype)
+                latents = self.vae.encode(latents).latent_dist
+                cached_latents.append(latents)
+
+        # Move vae to CPU
+        logger.info("Moving VAE to CPU")
+        self.vae.to("cpu")
+        return cached_latents

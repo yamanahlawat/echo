@@ -19,6 +19,7 @@ class ModelConfigurationSchema(BaseModel):
             " More details: https://github.com/huggingface/diffusers/pull/4038."
         ),
     )
+    cache_latents: bool = Field(default=True, description="Whether to cache latents in memory.")
     no_half_vae: bool = Field(
         default=False,
         description="Do not use half precision for the VAE.",
