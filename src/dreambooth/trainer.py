@@ -277,6 +277,7 @@ class DreamboothTrainer(BaseTrainer):
         # start of the training process
         self.logger.info("***** Training Configuration *****")
         self.logger.info(f"Mix precision: {self.schema.mixed_precision}")
+        self.logger.info(f"Vae dtype: {self.vae_dtype}")
         self.logger.info(f"Num examples = {len(train_dataloader.dataset)}")
         self.logger.info(f"Num batches each epoch = {len(train_dataloader)}")
         self.logger.info(f"Num Epochs = {self.schema.num_train_epochs}")
@@ -286,7 +287,7 @@ class DreamboothTrainer(BaseTrainer):
         self.logger.info(f"Total optimization steps = {self.schema.max_train_steps}")
 
         self.logger.info("***** Device and Distributed Training Details *****")
-        self.logger.info(f"Device: {self.accelerator.device}")
+        self.logger.info(f"Accelerator Device: {self.accelerator.device}")
         self.logger.info(f"Number of GPUs: {self.accelerator.num_processes}")
         self.logger.info(f"Is distributed training: {self.accelerator.num_processes > 1}")
 
@@ -314,12 +315,12 @@ class DreamboothTrainer(BaseTrainer):
     def _validate(self, global_step: int):
         self.logger.info("***** Running Validation *****")
         self.logger.info(f"Generating {self.schema.num_validation_images} images for validation")
-        self.vae = self.vae.to(device=self.vae_dtype)
+
         pipeline = StableDiffusionPipeline.from_pretrained(
             pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
             tokenizer=self.tokenizer,
-            text_encoder=self.text_encoder,
-            unet=self.unet,
+            text_encoder=self.accelerator.unwrap_model(self.text_encoder),
+            unet=self.accelerator.unwrap_model(self.unet),
             variant=self.schema.variant,
             torch_dtype=self.weight_dtype,
             safety_checker=None,
