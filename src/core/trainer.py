@@ -23,13 +23,13 @@ logger = get_logger(__name__)
 class BaseTrainer:
     def __init__(self, schema: BaseModel) -> None:
         self.schema = schema
+        self._init_seed()
         # we must initialize the accelerate state before using the logging utility.
         self.accelerator = self._init_accelerator()
         self.weight_dtype = self._get_weight_dtype()
         self.vae_dtype = torch.float32 if self.schema.no_half_vae else self.weight_dtype
         self._init_logging()
         self.logger = logger
-        self._init_seed()
         self._generate_class_images()
         self.repo_id = self._create_model_repo()
         self.noise_scheduler = self._init_noise_scheduler()
@@ -328,5 +328,6 @@ class BaseTrainer:
 
         # Move vae to CPU
         logger.info("Moving VAE to CPU")
-        self.vae.to("cpu")
+        self.vae = self.vae.to("cpu")
+        torch.cuda.empty_cache()
         return cached_latents
