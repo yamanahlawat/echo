@@ -59,6 +59,7 @@ class OptimizerEnum(BaseEnum):
     ADAMW = "adamw"
     ADAMW_8BIT = "adamw_8bit"
     LION = "lion"
+    LION_8BIT = "lion_8bit"
 
 
 class ModelFileExtensions(BaseEnum):
