@@ -1,5 +1,5 @@
 # Use an NVIDIA CUDA base image
-FROM nvidia/cuda:12.3.1-devel-ubuntu22.04
+FROM nvidia/cuda:12.3.1-runtime-ubuntu22.04
 
 # Set environment variables to non-interactive (to avoid prompts during build)
 ENV DEBIAN_FRONTEND=noninteractive
@@ -40,3 +40,6 @@ RUN poetry install --no-root --no-interaction
 
 # Copy the rest of the project
 COPY . ./
+
+# Keep the container running with a non-exiting command
+CMD tail -f /dev/null

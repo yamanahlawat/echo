@@ -236,9 +236,9 @@ class BaseTrainer:
         # (vae, non-lora text_encoder and non-lora unet) to half-precision
         # as these weights are only used for inference, keeping weights in full precision is not required.
         weight_dtype = torch.float32
-        if self.schema.mixed_precision == PrecisionType.FP16:
+        if self.accelerator.mixed_precision == PrecisionType.FP16:
             weight_dtype = torch.float16
-        elif self.schema.mixed_precision == PrecisionType.BF16:
+        elif self.accelerator.mixed_precision == PrecisionType.BF16:
             weight_dtype = torch.bfloat16
         return weight_dtype
 
@@ -286,37 +286,47 @@ class BaseTrainer:
             scheduler_args["variance_type"] = variance_type
         return scheduler_args
 
-    def _save_model_card(self, images, pipeline):
+    def _save_model_card(images, pipeline, output_dir):
+        def _generate_gallery_widget(self, images):
+            widget_str = "\nwidget:\n"
+            for i, image in enumerate(images):
+                widget_str += f'- text: "Caption for img_{i}"\n'
+                widget_str += "  output:\n"
+                widget_str += f'    url: "./image_{i}.png"\n'
+            return widget_str
+
         img_str = ""
         for i, image in enumerate(images):
-            image.save(self.schema.output_dir / f"image_{i}.png")
+            image.save(output_dir / f"image_{i}.png")
             img_str += f"![img_{i}](./image_{i}.png)\n"
 
-        repo_config = f"""
-            ---
-            base_model: {self.schema.pretrained_model_name_or_path}
-            instance_prompt: {self.schema.instance_prompt}
-            tags:
-            - {'stable-diffusion' if isinstance(pipeline, StableDiffusionPipeline) else 'if'}
-            - {'stable-diffusion-diffusers' if isinstance(pipeline, StableDiffusionPipeline) else 'if-diffusers'}
-            - text-to-image
-            - diffusers
-            - dreambooth
-            inference: true
-            ---
-        """
+        repo_config = (
+            "---\n"
+            "license: creativeml-openrail-m\n"
+            "base_model: SG161222/Realistic_Vision_V6.0_B1_noVAE\n"
+            "instance_prompt: ohwx\n"
+            "tags:\n"
+            "- stable-diffusion\n"
+            "- stable-diffusion-diffusers\n"
+            "- text-to-image\n"
+            "- diffusers\n"
+            "- dreambooth\n"
+            "inference: true\n"
+            "---\n\n"
+        )
 
-        model_card = f"""
-            # DreamBooth - {self.repo_id}
+        model_card = (
+            "# DreamBooth - yamanahlawat/model_card\n\n"
+            "This is a dreambooth model derived from SG161222/Realistic_Vision_V6.0_B1_noVAE.\n"
+            "The weights were trained on ohwx using [DreamBooth](https://dreambooth.github.io/).\n"
+            "You can find some example images in the following.\n\n"
+            f"{img_str}\n"
+        )
 
-            This is a dreambooth model derived from {self.schema.pretrained_model_name_or_path}.
-            The weights were trained on {self.schema.instance_prompt} using [DreamBooth](https://dreambooth.github.io/).
-            You can find some example images in the following. \n
-            {img_str}
-        """
+        gallery_widget = _generate_gallery_widget(images)
 
-        with open(self.schema.output_dir / "README.md", "w") as readme_file:
-            readme_file.write(repo_config + model_card)
+        with open(output_dir / "README.md", "w") as readme_file:
+            readme_file.write(repo_config + model_card + gallery_widget)
 
     def _upload_repo_to_hub(self):
         upload_folder(
