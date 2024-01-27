@@ -7,7 +7,6 @@ services:
       dockerfile: ./docker/DockerFile
     volumes:
       - ./:/echo
-    command: tail -f /dev/null
     stdin_open: true
     tty: true
     # Increase shared memory size to avoid 'bus error' in data-intensive tasks
