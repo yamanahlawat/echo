@@ -206,6 +206,15 @@ class BaseTrainer:
                 betas=(self.schema.beta1, self.schema.beta2),
                 weight_decay=self.schema.weight_decay,
             )
+        elif self.schema.optimizer == OptimizerEnum.LION_8BIT:
+            from bitsandbytes.optim import Lion8bit
+
+            return Lion8bit(
+                params=parameter_to_optimize,
+                lr=self.schema.learning_rate,
+                betas=(self.schema.beta1, self.schema.beta2),
+                weight_decay=self.schema.weight_decay,
+            )
         else:
             raise ValueError(f"Unsupported optimizer: {self.schema.optimizer}")
 
