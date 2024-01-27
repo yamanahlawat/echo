@@ -349,12 +349,13 @@ class DreamboothTrainer(BaseTrainer):
 
         images = []
         for _ in tqdm(range(self.schema.num_validation_images)):
-            result = pipeline(
-                **pipeline_args,
-                generator=generator,
-                num_inference_steps=self.schema.validation_num_inference_steps,
-                guidance_scale=self.schema.validation_guidance_scale,
-            )
+            with torch.autocast("cuda"):
+                result = pipeline(
+                    **pipeline_args,
+                    generator=generator,
+                    num_inference_steps=self.schema.validation_num_inference_steps,
+                    guidance_scale=self.schema.validation_guidance_scale,
+                )
             images.append(result.images[0])
 
         for tracker in self.accelerator.trackers:
