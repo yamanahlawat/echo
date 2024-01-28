@@ -286,47 +286,50 @@ class BaseTrainer:
             scheduler_args["variance_type"] = variance_type
         return scheduler_args
 
-    def _save_model_card(images, pipeline, output_dir):
-        def _generate_gallery_widget(self, images):
-            widget_str = "\nwidget:\n"
-            for i, image in enumerate(images):
-                widget_str += f'- text: "Caption for img_{i}"\n'
-                widget_str += "  output:\n"
-                widget_str += f'    url: "./image_{i}.png"\n'
-            return widget_str
-
-        img_str = ""
+    def _generate_gallery_widget(self, images):
+        widget_str = "widget:\n"
         for i, image in enumerate(images):
-            image.save(output_dir / f"image_{i}.png")
-            img_str += f"![img_{i}](./image_{i}.png)\n"
+            image_path = self.schema.output_dir / f"image_{i}.png"
+            image.save(image_path)
+            widget_str += f"- text: '{self.schema.validation_prompt}'\n"
+            widget_str += f"  output:\n    url: './image_{i}.png'\n"
+        return widget_str
+
+    def _save_model_card(self, images, pipeline):
+        gallery_widget = self._generate_gallery_widget(images)
+
+        tags = [
+            "stable-diffusion" if isinstance(pipeline, StableDiffusionPipeline) else "if",
+            "stable-diffusion-diffusers" if isinstance(pipeline, StableDiffusionPipeline) else "if-diffusers",
+            "text-to-image",
+            "diffusers",
+            "dreambooth",
+        ]
+        tags_list = "\n".join(f"- {tag}" for tag in tags)
 
         repo_config = (
             "---\n"
             "license: creativeml-openrail-m\n"
-            "base_model: SG161222/Realistic_Vision_V6.0_B1_noVAE\n"
-            "instance_prompt: ohwx\n"
+            f"base_model: {self.schema.pretrained_model_name_or_path}\n"
+            f"instance_prompt: {self.schema.instance_prompt}\n"
+            "library_name: echo\n"
             "tags:\n"
-            "- stable-diffusion\n"
-            "- stable-diffusion-diffusers\n"
-            "- text-to-image\n"
-            "- diffusers\n"
-            "- dreambooth\n"
+            f"{tags_list}\n"
             "inference: true\n"
+            f"{gallery_widget}\n"
             "---\n\n"
         )
 
-        model_card = (
-            "# DreamBooth - yamanahlawat/model_card\n\n"
-            "This is a dreambooth model derived from SG161222/Realistic_Vision_V6.0_B1_noVAE.\n"
-            "The weights were trained on ohwx using [DreamBooth](https://dreambooth.github.io/).\n"
-            "You can find some example images in the following.\n\n"
-            f"{img_str}\n"
+        model_card_content = (
+            f"# DreamBooth - {self.repo_id}\n\n"
+            "<Gallery />\n\n"
+            f"This is a dreambooth model derived from {self.schema.pretrained_model_name_or_path}.\n"
+            f"The weights were trained on {self.schema.instance_prompt} using [DreamBooth](https://dreambooth.github.io/).\n\n"
+            f"DreamBooth for the text encoder was enabled: {self.train_text_encoder}\n"
         )
 
-        gallery_widget = _generate_gallery_widget(images)
-
-        with open(output_dir / "README.md", "w") as readme_file:
-            readme_file.write(repo_config + model_card + gallery_widget)
+        with open(self.schema.output_dir / "README.md", "w") as readme_file:
+            readme_file.write(repo_config + model_card_content)
 
     def _upload_repo_to_hub(self):
         upload_folder(
