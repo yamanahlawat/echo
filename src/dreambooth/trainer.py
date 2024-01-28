@@ -577,13 +577,3 @@ class DreamboothTrainer(BaseTrainer):
 
         self.accelerator.end_training()
         self.logger.info("***** Training finished *****")
-
-    @classmethod
-    def launch_training(cls, schema):
-        """
-        This method initializes the class instance and launches the training function using accelerate notebook_launcher.
-        Args:
-            schema: The schema to pass to the class instance.
-        """
-        trainer = cls(schema=schema)
-        accelerate.notebook_launcher(trainer.train, num_of_processes=torch.cuda.device_count())

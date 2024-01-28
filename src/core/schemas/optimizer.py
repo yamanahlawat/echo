@@ -23,7 +23,7 @@ class LearningRateSchema(BaseModel):
         description="The scheduler type to use.",
     )
     learning_rate_warmup_steps: int = Field(
-        default=500,
+        default=0,
         description="Number of steps for the warmup in the learning rate scheduler.",
     )
     learning_rate_num_cycles: int = Field(
