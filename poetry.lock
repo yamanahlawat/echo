@@ -3491,13 +3491,13 @@ test = ["argcomplete (>=3.0.3)", "mypy (>=1.7.0)", "pre-commit", "pytest (>=7.0,
 
 [[package]]
 name = "transformers"
-version = "4.37.1"
+version = "4.37.2"
 description = "State-of-the-art Machine Learning for JAX, PyTorch and TensorFlow"
 optional = false
 python-versions = ">=3.8.0"
 files = [
-    {file = "transformers-4.37.1-py3-none-any.whl", hash = "sha256:05e4c4bf94f74addeb716bc83517f49d55df1e9022db3d5b027c801e9a410ebf"},
-    {file = "transformers-4.37.1.tar.gz", hash = "sha256:9843368d97fd7ac30126664743adc65e8e5be930da7d66342172e97bd1243e2d"},
+    {file = "transformers-4.37.2-py3-none-any.whl", hash = "sha256:595a8b12a1fcc4ad0ced49ce206c58e17be68c85d7aee3d7546d04a32c910d2e"},
+    {file = "transformers-4.37.2.tar.gz", hash = "sha256:f307082ae5d528b8480611a4879a4a11651012d0e9aaea3f6cf17219ffd95542"},
 ]
 
 [package.dependencies]
@@ -3508,7 +3508,7 @@ packaging = ">=20.0"
 pyyaml = ">=5.1"
 regex = "!=2019.12.17"
 requests = "*"
-safetensors = ">=0.3.1"
+safetensors = ">=0.4.1"
 tokenizers = ">=0.14,<0.19"
 tqdm = ">=4.27"
 
@@ -4053,4 +4053,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "5298dbe17c996ac3c0132303be75dd609acfbdebdf26b73822c290dafbdec8f5"
+content-hash = "c6b6120d119deed4dcb2bbd571666d46e31afd43c4e5fad0a8148d295834abbe"
