@@ -36,6 +36,8 @@ class LearningRateSchedulerEnum(BaseEnum):
     COSINE_WITH_RESTARTS = "cosine_with_restarts"
     POLYNOMIAL = "polynomial"
     CONSTANT_WITH_WARMUP = "constant_with_warmup"
+    COSINE_ANNEALING = "cosine_annealing"
+    COSINE_ANNEALING_WARM_RESTARTS = "cosine_annealing_warm_restarts"
 
 
 class SchedulerEnum(BaseEnum):
