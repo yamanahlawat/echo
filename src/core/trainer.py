@@ -236,9 +236,9 @@ class BaseTrainer:
         # (vae, non-lora text_encoder and non-lora unet) to half-precision
         # as these weights are only used for inference, keeping weights in full precision is not required.
         weight_dtype = torch.float32
-        if self.accelerator.mixed_precision == PrecisionType.FP16:
+        if self.accelerator.mixed_precision == PrecisionType.FP16.value:
             weight_dtype = torch.float16
-        elif self.accelerator.mixed_precision == PrecisionType.BF16:
+        elif self.accelerator.mixed_precision == PrecisionType.BF16.value:
             weight_dtype = torch.bfloat16
         return weight_dtype
 
