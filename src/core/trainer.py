@@ -14,8 +14,9 @@ from loguru import logger as train_logger
 from pydantic import BaseModel
 from tqdm.auto import tqdm
 
-from src.core.constants import ModelFileExtensions, OptimizerEnum
+from src.core.constants import LearningRateSchedulerEnum, ModelFileExtensions, OptimizerEnum
 from src.core.dataset import PromptDataset
+from src.core.helpers.lr_schedulers import get_cosine_annealing_scheduler, get_cosine_annealing_warm_restarts_scheduler
 
 logger = get_logger(__name__)
 
@@ -221,15 +222,24 @@ class BaseTrainer:
     def _init_learning_rate_scheduler(self, optimizer):
         num_warmup_steps = self.schema.learning_rate_warmup_steps * self.accelerator.num_processes
         num_training_steps = self.schema.max_train_steps * self.accelerator.num_processes
-        logger.info(
-            f"Initializing learning rate scheduler: {self.schema.learning_rate_scheduler}, warmup steps: {num_warmup_steps}, training steps: {num_training_steps}"
-        )
-        return get_scheduler(
-            name=self.schema.learning_rate_scheduler,
-            optimizer=optimizer,
-            num_warmup_steps=num_warmup_steps,
-            num_training_steps=num_training_steps,
-        )
+
+        if self.schema.learning_rate_scheduler == LearningRateSchedulerEnum.COSINE_ANNEALING_WARM_RESTARTS:
+            return get_cosine_annealing_warm_restarts_scheduler(optimizer=optimizer, T_0=num_warmup_steps)
+
+        elif self.schema.learning_rate_scheduler == LearningRateSchedulerEnum.COSINE_ANNEALING:
+            return get_cosine_annealing_scheduler(optimizer=optimizer, T_max=num_training_steps)
+
+        else:
+            logger.info(
+                f"Initializing learning rate scheduler: {self.schema.learning_rate_scheduler}, warmup steps: {num_warmup_steps},"
+                f" training steps: {num_training_steps}"
+            )
+            return get_scheduler(
+                name=self.schema.learning_rate_scheduler,
+                optimizer=optimizer,
+                num_warmup_steps=num_warmup_steps,
+                num_training_steps=num_training_steps,
+            )
 
     def _get_weight_dtype(self):
         # For mixed precision training we cast all non-trainable weights
