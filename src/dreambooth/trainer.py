@@ -292,9 +292,11 @@ class DreamboothTrainer(BaseTrainer):
         self.logger.info(f"Is distributed training: {self.accelerator.num_processes > 1}")
 
         self.logger.info("***** Optimizer and Learning Rate Scheduler *****")
-        self.logger.info(f"Optimizer: {type(optimizer).__name__}")
+        self.logger.info(f"Optimizer: {type(self.accelerator.unwrap_model(optimizer)).__name__}")
         self.logger.info(f"Learning Rate: {self.schema.learning_rate}")
-        self.logger.info(f"Learning Rate Scheduler: {type(learning_rate_scheduler).__name__}")
+        self.logger.info(
+            f"Learning Rate Scheduler: {type(self.accelerator.unwrap_model(learning_rate_scheduler)).__name__}"
+        )
 
         self.logger.info("***** Checkpointing and Validation *****")
         self.logger.info(f"Checkpoint Frequency: {self.schema.checkpointing_steps} steps")

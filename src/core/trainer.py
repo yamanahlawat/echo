@@ -336,7 +336,7 @@ class BaseTrainer:
             "<Gallery />\n\n"
             f"This is a dreambooth model derived from {self.schema.pretrained_model_name_or_path}.\n"
             f"The weights were trained on {self.schema.instance_prompt} using [DreamBooth](https://dreambooth.github.io/).\n\n"
-            f"DreamBooth for the text encoder was enabled: {self.train_text_encoder}\n"
+            f"DreamBooth for the text encoder was enabled: {self.schema.train_text_encoder}\n"
         )
 
         with open(self.schema.output_dir / "README.md", "w") as readme_file:
