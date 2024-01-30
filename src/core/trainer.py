@@ -16,7 +16,8 @@ from tqdm.auto import tqdm
 
 from src.core.constants import LearningRateSchedulerEnum, ModelFileExtensions, OptimizerEnum
 from src.core.dataset import PromptDataset
-from src.core.helpers.lr_schedulers import get_cosine_annealing_scheduler, get_cosine_annealing_warm_restarts_scheduler
+from src.core.factory import optimizers
+from src.core.factory.lr_schedulers import get_cosine_annealing_scheduler, get_cosine_annealing_warm_restarts_scheduler
 
 logger = get_logger(__name__)
 
@@ -181,39 +182,39 @@ class BaseTrainer:
 
     def _init_optimizer(self, parameter_to_optimize):
         if self.schema.optimizer == OptimizerEnum.ADAMW:
-            return torch.optim.AdamW(
+            return optimizers.get_adamw_optimizer(
                 params=parameter_to_optimize,
-                lr=self.schema.learning_rate,
+                learning_rate=self.schema.learning_rate,
                 betas=(self.schema.beta1, self.schema.beta2),
                 weight_decay=self.schema.weight_decay,
                 eps=self.schema.epsilon,
             )
         elif self.schema.optimizer == OptimizerEnum.ADAMW_8BIT:
-            from bitsandbytes.optim import Adam8bit
-
-            return Adam8bit(
+            return optimizers.get_adam8bit_optimizer(
                 params=parameter_to_optimize,
-                lr=self.schema.learning_rate,
+                learning_rate=self.schema.learning_rate,
                 betas=(self.schema.beta1, self.schema.beta2),
                 weight_decay=self.schema.weight_decay,
                 eps=self.schema.epsilon,
             )
         elif self.schema.optimizer == OptimizerEnum.LION:
-            from bitsandbytes.optim import Lion
-
-            return Lion(
+            return optimizers.get_lion_optimizer(
                 params=parameter_to_optimize,
-                lr=self.schema.learning_rate,
+                learning_rate=self.schema.learning_rate,
                 betas=(self.schema.beta1, self.schema.beta2),
                 weight_decay=self.schema.weight_decay,
             )
         elif self.schema.optimizer == OptimizerEnum.LION_8BIT:
-            from bitsandbytes.optim import Lion8bit
-
-            return Lion8bit(
+            return optimizers.get_lion8bit_optimizer(
                 params=parameter_to_optimize,
-                lr=self.schema.learning_rate,
+                learning_rate=self.schema.learning_rate,
                 betas=(self.schema.beta1, self.schema.beta2),
+                weight_decay=self.schema.weight_decay,
+            )
+        elif self.schema.optimizer == OptimizerEnum.ADAFACTOR:
+            return optimizers.get_adafactor_optimizer(
+                params=parameter_to_optimize,
+                learning_rate=self.schema.learning_rate,
                 weight_decay=self.schema.weight_decay,
             )
         else:
