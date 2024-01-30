@@ -53,8 +53,6 @@ class SchedulerEnum(BaseEnum):
 class OptimizerEnum(BaseEnum):
     """
     Enum for specifying the optimizer type.
-    - ADAMW: Adam optimizer with weight decay.
-    - LION: LION optimizer.
     """
 
     # TODO: Add support for more optimizers
@@ -62,6 +60,7 @@ class OptimizerEnum(BaseEnum):
     ADAMW_8BIT = "adamw_8bit"
     LION = "lion"
     LION_8BIT = "lion_8bit"
+    ADAFACTOR = "adafactor"
 
 
 class ModelFileExtensions(BaseEnum):
