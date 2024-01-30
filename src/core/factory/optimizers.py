@@ -1,5 +1,6 @@
-from bitsandbytes.optim import Adam8bit, Lion, Lion8bit
+from bitsandbytes.optim import Adam8bit, Lion8bit
 from loguru import logger
+from pytorch_optimizer import Lion
 from torch.optim import AdamW
 from transformers import Adafactor
 
