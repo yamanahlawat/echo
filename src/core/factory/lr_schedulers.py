@@ -8,7 +8,7 @@ def get_cosine_annealing_warm_restarts_scheduler(
 ):
     logger.info(f"Initializing CosineAnnealingWarmRestarts scheduler: T_0={T_0}, T_mult={T_mult}, eta_min={eta_min}")
     return CosineAnnealingWarmRestarts(
-        optimizer=optimizer, T_0=T_0, T_mult=1, eta_min=1e-6, last_epoch=-1, verbose=verbose
+        optimizer=optimizer, T_0=T_0, T_mult=T_mult, eta_min=1e-6, last_epoch=-1, verbose=verbose
     )
 
 
