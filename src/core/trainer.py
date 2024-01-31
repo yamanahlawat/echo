@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import torch
 import transformers
@@ -141,7 +142,7 @@ class BaseTrainer:
 
     def _init_vae(self, sub_folder: str = "vae"):
         if vae_name := self.schema.pretrained_vae_name_or_path:
-            if vae_name.suffix in ModelFileExtensions.list():
+            if Path(vae_name).suffix in ModelFileExtensions.list():
                 self.logger.info(f"Initializing VAE from file: {vae_name}")
                 vae = AutoencoderKL.from_single_file(pretrained_model_link_or_path=vae_name)
             else:
