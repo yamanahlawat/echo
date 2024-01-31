@@ -1,8 +1,7 @@
 from bitsandbytes.optim import Adam8bit, Lion8bit
 from loguru import logger
-from pytorch_optimizer import Lion
+from pytorch_optimizer import AdaFactor, Lion
 from torch.optim import AdamW
-from transformers import Adafactor
 
 
 def get_adamw_optimizer(
@@ -37,9 +36,9 @@ def get_lion8bit_optimizer(params, learning_rate: float, betas: tuple[float, flo
     return Lion8bit(params=params, lr=learning_rate, betas=betas, weight_decay=weight_decay)
 
 
-def get_adafactor_optimizer(params, learning_rate: float, weight_decay: float) -> Adafactor:
-    logger.info(f"Initializing Adafactor optimizer with learning_rate={learning_rate}, weight_decay={weight_decay}")
-    return Adafactor(
+def get_adafactor_optimizer(params, learning_rate: float, weight_decay: float) -> AdaFactor:
+    logger.info(f"Initializing AdaFactor optimizer with learning_rate={learning_rate}, weight_decay={weight_decay}")
+    return AdaFactor(
         params=params,
         lr=learning_rate,
         clip_threshold=1.0,
