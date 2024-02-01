@@ -61,14 +61,13 @@ class DreamboothTrainer(BaseTrainer):
         if model_class_name == "CLIPTextModel":
             from transformers import CLIPTextModel
 
-            model_class = CLIPTextModel
+            return CLIPTextModel
         elif model_class_name == "T5EncoderModel":
             from transformers import T5EncoderModel
 
-            model_class = T5EncoderModel
+            return T5EncoderModel
         else:
-            self.logger.error(f"Unsupported Text Encoder model class: {model_class_name}")
-        return model_class
+            ValueError(f"Unsupported Text Encoder model class: {model_class_name}")
 
     def _init_text_encoder(self, sub_folder: str = "text_encoder"):
         self.logger.info(
@@ -90,9 +89,7 @@ class DreamboothTrainer(BaseTrainer):
     def _save_model_hook(self, models, weights, output_dir):
         if self.accelerator.is_main_process:
             for model in models:
-                sub_dir = (
-                    "unet" if isinstance(model, type(self.accelerator.unwrap_model(self.unet))) else "text_encoder"
-                )
+                sub_dir = "unet" if isinstance(model, type(self._unwrap_model(model=self.unet))) else "text_encoder"
                 model.save_pretrained(output_dir / sub_dir)
                 # make sure to pop weight so that corresponding model is not saved again
                 weights.pop()
@@ -102,7 +99,7 @@ class DreamboothTrainer(BaseTrainer):
             # pop models so that they are not loaded again
             model = models.pop()
 
-            if isinstance(model, type(self.accelerator.unwrap_model(self.text_encoder))):
+            if isinstance(model, type(self._unwrap_model(self.text_encoder))):
                 # load transformers style into model
                 load_model = self.text_encoder_model_class.from_pretrained(
                     pretrained_model_name_or_path=input_dir, subfolder="text_encoder"
@@ -127,14 +124,14 @@ class DreamboothTrainer(BaseTrainer):
             return_tensors="pt",
         )
 
-    def _encode_prompt(self, text_encoder, input_ids, attention_mask, text_encoder_use_attention_mask=None):
+    def _encode_prompt(self, input_ids, attention_mask):
         text_inputs_ids = input_ids.to(device=self.text_encoder.device)
 
-        if text_encoder_use_attention_mask:
+        if self.schema.text_encoder_use_attention_mask:
             text_attention_mask = attention_mask.to(device=self.text_encoder.device)
         else:
             text_attention_mask = None
-        prompt_embeds = text_encoder(
+        prompt_embeds = self.text_encoder(
             input_ids=text_inputs_ids,
             attention_mask=text_attention_mask,
             return_dict=False,
@@ -240,23 +237,11 @@ class DreamboothTrainer(BaseTrainer):
         return train_dataloader, optimizer, learning_rate_scheduler, num_update_steps_per_epoch
 
     def _snr_gamma_weighting(self, model_pred, target, timesteps):
-        # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
-        # Since we predict the noise instead of x_0, the original formulation is slightly changed.
-        # This is discussed in Section 4.2 of the same paper.
-        if self.schema.with_prior_preservation:
-            # if we're using prior preservation, we calc snr for instance loss only -
-            # and hence only need timesteps corresponding to instance images
-            snr_timesteps, _ = torch.chunk(timesteps, 2, dim=0)
-        else:
-            snr_timesteps = timesteps
-
         # compute the SNR for each timestep
-        snr = compute_snr(noise_scheduler=self.noise_scheduler, timesteps=snr_timesteps)
-        base_weight = (
-            torch.stack([snr, self.schema.snr_gamma * torch.ones_like(snr_timesteps)], dim=1).min(dim=1)[0] / snr
-        )
+        snr = compute_snr(noise_scheduler=self.noise_scheduler, timesteps=timesteps)
+        base_weight = torch.stack([snr, self.schema.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
 
-        if self.noise_scheduler.config.prediction_type == "epsilon":
+        if self.noise_scheduler.config.prediction_type == "v_prediction":
             # Velocity objective needs to be floored to an SNR weight of one.
             mse_loss_weights = base_weight + 1
         else:
@@ -292,11 +277,9 @@ class DreamboothTrainer(BaseTrainer):
         self.logger.info(f"Is distributed training: {self.accelerator.num_processes > 1}")
 
         self.logger.info("***** Optimizer and Learning Rate Scheduler *****")
-        self.logger.info(f"Optimizer: {type(self.accelerator.unwrap_model(optimizer)).__name__}")
+        self.logger.info(f"Optimizer: {type(optimizer).__name__}")
         self.logger.info(f"Learning Rate: {self.schema.learning_rate}")
-        self.logger.info(
-            f"Learning Rate Scheduler: {type(self.accelerator.unwrap_model(learning_rate_scheduler)).__name__}"
-        )
+        self.logger.info(f"Learning Rate Scheduler: {type(learning_rate_scheduler).__name__}")
 
         self.logger.info("***** Checkpointing and Validation *****")
         self.logger.info(f"Checkpoint Frequency: {self.schema.checkpointing_steps} steps")
@@ -321,8 +304,8 @@ class DreamboothTrainer(BaseTrainer):
         pipeline = StableDiffusionPipeline.from_pretrained(
             pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
             tokenizer=self.tokenizer,
-            text_encoder=self.accelerator.unwrap_model(self.text_encoder),
-            unet=self.accelerator.unwrap_model(self.unet),
+            text_encoder=self._unwrap_model(model=self.text_encoder),
+            unet=self._unwrap_model(model=self.unet),
             variant=self.schema.variant,
             torch_dtype=self.weight_dtype,
             safety_checker=None,
@@ -386,9 +369,9 @@ class DreamboothTrainer(BaseTrainer):
         if self.accelerator.is_main_process:
             pipeline = StableDiffusionPipeline.from_pretrained(
                 pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-                unet=self.accelerator.unwrap_model(self.unet),
+                unet=self._unwrap_model(self.unet),
                 variant=self.schema.variant,
-                tokenizer=self.accelerator.unwrap_model(self.tokenizer),
+                tokenizer=self._unwrap_model(self.tokenizer),
             )
             scheduler_args = self._get_scheduler_args(pipeline=pipeline)
             pipeline.scheduler = pipeline.scheduler.from_config(pipeline.scheduler.config, **scheduler_args)
@@ -478,13 +461,11 @@ class DreamboothTrainer(BaseTrainer):
                     # Get the text embeddings for conditioning
                     # TODO: add pre-computed text embeddings
                     encoder_hidden_states = self._encode_prompt(
-                        text_encoder=self.text_encoder,
                         input_ids=batch["input_ids"],
                         attention_mask=batch["attention_mask"],
-                        text_encoder_use_attention_mask=self.schema.text_encoder_use_attention_mask,
                     )
 
-                    if self.accelerator.unwrap_model(self.unet).config.in_channels == channels * 2:
+                    if self._unwrap_model(model=self.unet).config.in_channels == channels * 2:
                         noisy_model_input = torch.cat([noisy_model_input, noisy_model_input], dim=1)
 
                     if self.schema.class_labels_conditioning == "timesteps":

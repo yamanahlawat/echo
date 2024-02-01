@@ -10,7 +10,7 @@ def get_adamw_optimizer(
     logger.info(
         f"Initializing AdamW optimizer with learning_rate={learning_rate}, betas={betas}, weight_decay={weight_decay}, eps={eps}"
     )
-    return AdamW(param=params, lr=learning_rate, betas=betas, weight_decay=weight_decay, eps=eps)
+    return AdamW(params=params, lr=learning_rate, betas=betas, weight_decay=weight_decay, eps=eps)
 
 
 def get_adam8bit_optimizer(

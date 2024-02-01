@@ -38,9 +38,9 @@ class DreamBoothDataset(Dataset):
         logger.info(f"Number of instance images: {self.num_instance_images}.")
 
         self.class_data_dir = class_data_dir
-        if class_data_dir:
+        if self.class_data_dir:
             self.class_prompt = class_prompt
-            self.class_images = list(class_data_dir.glob("*"))
+            self.class_images = list(self.class_data_dir.glob("*"))
             self.num_class_images = min(len(self.class_images), num_class_images)
             logger.info(f"Using {self.num_class_images} class images for prior preservation loss.")
 
