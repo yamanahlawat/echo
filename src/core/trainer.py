@@ -10,6 +10,7 @@ from accelerate.utils.dataclasses import PrecisionType
 from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
 from diffusers.utils.logging import set_verbosity_error, set_verbosity_info
+from diffusers.utils.torch_utils import is_compiled_module
 from huggingface_hub import create_repo, upload_folder
 from loguru import logger as train_logger
 from pydantic import BaseModel
@@ -33,16 +34,19 @@ class BaseTrainer:
         self.vae_dtype = torch.float32 if self.schema.no_half_vae else self.weight_dtype
         self._init_logging()
         self.logger = logger
-        self._generate_class_images()
         self.repo_id = self._create_model_repo()
         self.noise_scheduler = self._init_noise_scheduler()
         self.vae = self._init_vae()
         self.vae_scaling_factor = self.vae.config.scaling_factor
         self.unet = self._init_unet()
 
+        if self.schema.with_prior_preservation:
+            self._generate_class_images()
+
         # Enable TF32 for faster training on Ampere GPUs,
         # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
-        self._allow_tf32()
+        if self.schema.allow_tf32:
+            self._allow_tf32()
 
     def _init_accelerator(self):
         # using train_logger since logger from accelerate is not initialized
@@ -75,11 +79,14 @@ class BaseTrainer:
             logger.info("Setting reproducible Training seed: {self.schema.seed}")
             set_seed(seed=self.schema.seed)
 
+    def _unwrap_model(self, model):
+        model = self.accelerator.unwrap_model(model)
+        model = model._orig_mod if is_compiled_module(model) else model
+        return model
+
     def _generate_class_images(self):
         existing_class_images = len(list(self.schema.class_data_dir.iterdir()))
         if existing_class_images < self.schema.num_class_images:
-            num_new_images = self.schema.num_class_images - existing_class_images
-            logger.info(f"Generating {num_new_images} additional class images using prompt: {self.schema.class_prompt}")
             torch_dtype = torch.float16 if self.accelerator.device.type == "cuda" else torch.float32
             if self.schema.prior_generation_precision == "fp32":
                 torch_dtype = torch.float32
@@ -94,6 +101,8 @@ class BaseTrainer:
                 safety_checker=None,
             )
             pipeline.set_progress_bar_config(disable=True)
+            num_new_images = self.schema.num_class_images - existing_class_images
+            logger.info(f"Generating {num_new_images} additional class images using prompt: {self.schema.class_prompt}")
             sample_dataset = PromptDataset(prompt=self.schema.class_prompt, num_samples=num_new_images)
             sample_dataloader = torch.utils.data.DataLoader(
                 sample_dataset,
@@ -175,11 +184,12 @@ class BaseTrainer:
             raise ValueError(
                 f"Unet loaded as datatype {unet.dtype}. Please make sure to always have all model weights in full float32 precision."
             )
+        if self.schema.enable_xformers_memory_efficient_attention:
+            unet.enable_xformers_memory_efficient_attention()
         return unet
 
     def _allow_tf32(self):
-        if self.schema.allow_tf32:
-            torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cuda.matmul.allow_tf32 = True
 
     def _init_optimizer(self, parameter_to_optimize):
         if self.schema.optimizer == OptimizerEnum.ADAMW:
@@ -324,7 +334,7 @@ class BaseTrainer:
             "license: creativeml-openrail-m\n"
             f"base_model: {self.schema.pretrained_model_name_or_path}\n"
             f"instance_prompt: {self.schema.instance_prompt}\n"
-            "library_name: echo\n"
+            "library_name: diffusers\n"
             "tags:\n"
             f"{tags_list}\n"
             "inference: true\n"
