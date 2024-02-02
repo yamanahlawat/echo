@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
@@ -9,6 +10,7 @@ from accelerate.utils import ProjectConfiguration, set_seed
 from accelerate.utils.dataclasses import PrecisionType
 from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
+from diffusers.training_utils import compute_snr
 from diffusers.utils.logging import set_verbosity_error, set_verbosity_info
 from diffusers.utils.torch_utils import is_compiled_module
 from huggingface_hub import create_repo, upload_folder
@@ -191,10 +193,10 @@ class BaseTrainer:
     def _allow_tf32(self):
         torch.backends.cuda.matmul.allow_tf32 = True
 
-    def _init_optimizer(self, parameter_to_optimize):
+    def _init_optimizer(self, parameters_to_optimize):
         if self.schema.optimizer == OptimizerEnum.ADAMW:
             return optimizers.get_adamw_optimizer(
-                params=parameter_to_optimize,
+                params=parameters_to_optimize,
                 learning_rate=self.schema.learning_rate,
                 betas=(self.schema.beta1, self.schema.beta2),
                 weight_decay=self.schema.weight_decay,
@@ -202,7 +204,7 @@ class BaseTrainer:
             )
         elif self.schema.optimizer == OptimizerEnum.ADAMW_8BIT:
             return optimizers.get_adam8bit_optimizer(
-                params=parameter_to_optimize,
+                params=parameters_to_optimize,
                 learning_rate=self.schema.learning_rate,
                 betas=(self.schema.beta1, self.schema.beta2),
                 weight_decay=self.schema.weight_decay,
@@ -210,21 +212,21 @@ class BaseTrainer:
             )
         elif self.schema.optimizer == OptimizerEnum.LION:
             return optimizers.get_lion_optimizer(
-                params=parameter_to_optimize,
+                params=parameters_to_optimize,
                 learning_rate=self.schema.learning_rate,
                 betas=(self.schema.beta1, self.schema.beta2),
                 weight_decay=self.schema.weight_decay,
             )
         elif self.schema.optimizer == OptimizerEnum.LION_8BIT:
             return optimizers.get_lion8bit_optimizer(
-                params=parameter_to_optimize,
+                params=parameters_to_optimize,
                 learning_rate=self.schema.learning_rate,
                 betas=(self.schema.beta1, self.schema.beta2),
                 weight_decay=self.schema.weight_decay,
             )
         elif self.schema.optimizer == OptimizerEnum.ADAFACTOR:
             return optimizers.get_adafactor_optimizer(
-                params=parameter_to_optimize,
+                params=parameters_to_optimize,
                 learning_rate=self.schema.learning_rate,
                 weight_decay=self.schema.weight_decay,
             )
@@ -375,3 +377,19 @@ class BaseTrainer:
         self.vae = self.vae.to("cpu")
         torch.cuda.empty_cache()
         return cached_latents
+
+    def _apply_snr_gamma_weighting(self, model_pred, target, timesteps):
+        # compute the SNR for each timestep
+        snr = compute_snr(noise_scheduler=self.noise_scheduler, timesteps=timesteps)
+        base_weight = torch.stack([snr, self.schema.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
+
+        if self.noise_scheduler.config.prediction_type == "v_prediction":
+            # Velocity objective needs to be floored to an SNR weight of one.
+            mse_loss_weights = base_weight + 1
+        else:
+            # Epsilon and sample both use the same loss weights.
+            mse_loss_weights = base_weight
+
+        loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+        loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
+        return loss.mean()

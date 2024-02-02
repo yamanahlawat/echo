@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from loguru import logger
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class TrainingSetupSchema(BaseModel):
@@ -19,6 +19,13 @@ class TrainingSetupSchema(BaseModel):
     )
     train_text_encoder: bool = Field(
         description="Whether to train the text encoder. If set, the text encoder should be float32 precision.",
+    )
+    pre_compute_text_embeddings: bool = Field(
+        description=(
+            "Whether or not to pre-compute text embeddings. If text embeddings are pre-computed,"
+            " the text encoder will not be kept in memory during training and will leave more GPU memory available for training the rest of the model."
+            " This is not compatible with `--train_text_encoder`."
+        ),
     )
     text_encoder_use_attention_mask: bool = Field(
         default=False,
@@ -41,8 +48,16 @@ class TrainingSetupSchema(BaseModel):
     def validate_output_dir(cls, value: Path) -> Path:
         if not value.exists():
             logger.info(f"Output directory: '{value}' does not exist. Creating it.")
-            value.mkdir(parents=True)
+            value.mkdir(parents=True, exist_ok=True)
         return value
+
+    @model_validator(mode="after")
+    def validate_training_setup_params(self):
+        # validate train_text_encoder and pre_compute_text_embeddings
+        if self.train_text_encoder and self.pre_compute_text_embeddings:
+            error = "`train_text_encoder` and `pre_compute_text_embeddings` are not compatible."
+            logger.error(error)
+            raise ValueError(error)
 
 
 class AdvancedTrainingFeaturesSchema(BaseModel):

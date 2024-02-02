@@ -9,6 +9,27 @@ logger = get_logger(__name__)
 
 
 class DreamBoothDataset(Dataset):
+    """
+    Dataset class for DreamBooth.
+
+    Args:
+        height (int): The height of the images.
+        width (int): The width of the images.
+        tokenizer: The tokenizer used for tokenizing prompts.
+        instance_data_dir (Path): The directory containing instance images.
+        instance_prompt (str): The prompt for instance images.
+        num_class_images (int): The number of class images to use for prior preservation loss.
+        tokenize_prompt (callable): The function for tokenizing prompts.
+        class_data_dir (Path | None): The directory containing class images (optional).
+        class_prompt (str | None): The prompt for class images (optional).
+        encoder_hidden_states: The encoder hidden states for instance images (optional).
+        class_prompt_encoder_hidden_states: The encoder hidden states for class images (optional).
+
+    Methods:
+        __len__(): Returns the length of the dataset.
+        __getitem__(index: int): Returns the example at the given index.
+    """
+
     def __init__(
         self,
         height: int,

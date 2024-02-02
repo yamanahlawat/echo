@@ -1,3 +1,4 @@
+import gc
 import importlib
 import itertools
 import math
@@ -12,7 +13,6 @@ import torch.nn.functional as F
 import wandb
 from accelerate.utils.dataclasses import LoggerType
 from diffusers import StableDiffusionPipeline, UNet2DConditionModel
-from diffusers.training_utils import compute_snr
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer, PretrainedConfig
@@ -86,6 +86,14 @@ class DreamboothTrainer(BaseTrainer):
             text_encoder.requires_grad_(False)
         return text_encoder
 
+    def _compute_text_embeddings(self, prompt: str):
+        with torch.no_grad():
+            text_inputs = self._tokenize_prompt(prompt=prompt, add_special_tokens=True)
+            return self._encode_prompt(
+                inputs_ids=text_inputs.input_ids,
+                attention_mask=text_inputs.attention_mask,
+            )
+
     def _save_model_hook(self, models, weights, output_dir):
         if self.accelerator.is_main_process:
             for model in models:
@@ -158,9 +166,28 @@ class DreamboothTrainer(BaseTrainer):
             self.text_encoder.parameters() if self.schema.train_text_encoder else self.unet.parameters(),
         )
 
-        optimizer = self._init_optimizer(parameter_to_optimize=parameters_to_optimize)
+        optimizer = self._init_optimizer(parameters_to_optimize=parameters_to_optimize)
 
-        # TODO: add pre_compute_text_embeddings
+        if self.schema.pre_compute_text_embeddings:
+            pre_computed_encoder_hidden_states = self._compute_text_embeddings(prompt=self.schema.instance_prompt)
+            pre_computed_class_prompt_encoder_hidden_states = self._compute_text_embeddings(
+                prompt=self.schema.class_prompt
+            )
+            validation_prompt_negative_prompt_embeds = self._compute_text_embeddings(
+                prompt=self.schema.validation_negative_prompt
+            )
+            validation_prompt_encoder_hidden_states = self._compute_text_embeddings(
+                prompt=self.schema.validation_prompt
+            )
+            self.text_encoder = None
+            self.tokenizer = None
+            gc.collect()
+            torch.cuda.empty_cache()
+        else:
+            pre_computed_encoder_hidden_states = None
+            pre_computed_class_prompt_encoder_hidden_states = None
+            validation_prompt_negative_prompt_embeds = None
+            validation_prompt_encoder_hidden_states = None
 
         train_dataset = DreamBoothDataset(
             height=self.schema.height,
@@ -172,8 +199,8 @@ class DreamboothTrainer(BaseTrainer):
             tokenize_prompt=self._tokenize_prompt,
             class_data_dir=self.schema.class_data_dir,
             class_prompt=self.schema.class_prompt,
-            encoder_hidden_states=None,
-            class_prompt_encoder_hidden_states=None,
+            encoder_hidden_states=pre_computed_encoder_hidden_states,
+            class_prompt_encoder_hidden_states=pre_computed_class_prompt_encoder_hidden_states,
         )
 
         train_dataloader = DataLoader(
@@ -234,23 +261,14 @@ class DreamboothTrainer(BaseTrainer):
                 project_name=self.schema.output_dir.name, config=self.schema.model_dump(mode="json")
             )
 
-        return train_dataloader, optimizer, learning_rate_scheduler, num_update_steps_per_epoch
-
-    def _snr_gamma_weighting(self, model_pred, target, timesteps):
-        # compute the SNR for each timestep
-        snr = compute_snr(noise_scheduler=self.noise_scheduler, timesteps=timesteps)
-        base_weight = torch.stack([snr, self.schema.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
-
-        if self.noise_scheduler.config.prediction_type == "v_prediction":
-            # Velocity objective needs to be floored to an SNR weight of one.
-            mse_loss_weights = base_weight + 1
-        else:
-            # Epsilon and sample both use the same loss weights.
-            mse_loss_weights = base_weight
-
-        loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-        loss = loss.mean(dim=list(range(1, loss.shape))) * mse_loss_weights
-        return loss.mean()
+        return (
+            train_dataloader,
+            optimizer,
+            learning_rate_scheduler,
+            num_update_steps_per_epoch,
+            validation_prompt_negative_prompt_embeds,
+            validation_prompt_encoder_hidden_states,
+        )
 
     def _log_training_details(self, train_dataloader, optimizer, learning_rate_scheduler, total_batch_size):
         self.logger.info("***** Environment and Model Architecture *****")
@@ -297,7 +315,7 @@ class DreamboothTrainer(BaseTrainer):
             self.logger.info(f"Prior Preservation Enabled: {self.schema.with_prior_preservation}")
             self.logger.info(f"Prior Preservation Loss Weight: {self.schema.prior_loss_weight}")
 
-    def _validate(self, global_step: int):
+    def _validate(self, global_step: int, prompt_embeds, negative_prompt_embeds):
         self.logger.info("***** Running Validation *****")
         self.logger.info(f"Generating {self.schema.num_validation_images} images for validation")
 
@@ -320,11 +338,16 @@ class DreamboothTrainer(BaseTrainer):
         pipeline = pipeline.to(device=self.accelerator.device)
         pipeline.set_progress_bar_config(disable=True)
 
-        # TODO: add pre-computed text embeddings
-        pipeline_args = {
-            "prompt": self.schema.validation_prompt,
-            "negative_prompt": self.schema.validation_negative_prompt,
-        }
+        if self.schema.pre_compute_text_embeddings:
+            pipeline_args = {
+                "prompt_embeds": prompt_embeds,
+                "negative_prompt_embeds": negative_prompt_embeds,
+            }
+        else:
+            pipeline_args = {
+                "prompt": self.schema.validation_prompt,
+                "negative_prompt": self.schema.validation_negative_prompt,
+            }
 
         generator = (
             torch.Generator(device=self.accelerator.device).manual_seed(seed=self.schema.seed)
@@ -362,6 +385,7 @@ class DreamboothTrainer(BaseTrainer):
                     }
                 )
         del pipeline
+        gc.collect()
         torch.cuda.empty_cache()
         return images
 
@@ -380,7 +404,14 @@ class DreamboothTrainer(BaseTrainer):
             return pipeline
 
     def train(self):
-        train_dataloader, optimizer, learning_rate_scheduler, num_update_steps_per_epoch = self.setup()
+        (
+            train_dataloader,
+            optimizer,
+            learning_rate_scheduler,
+            num_update_steps_per_epoch,
+            validation_prompt_negative_prompt_embeds,
+            validation_prompt_encoder_hidden_states,
+        ) = self.setup()
         total_batch_size = (
             self.schema.train_batch_size * self.accelerator.num_processes * self.schema.gradient_accumulation_steps
         )
@@ -459,11 +490,13 @@ class DreamboothTrainer(BaseTrainer):
                     noisy_model_input = self.noise_scheduler.add_noise(model_input, noise, timesteps)
 
                     # Get the text embeddings for conditioning
-                    # TODO: add pre-computed text embeddings
-                    encoder_hidden_states = self._encode_prompt(
-                        input_ids=batch["input_ids"],
-                        attention_mask=batch["attention_mask"],
-                    )
+                    if self.schema.pre_compute_text_embeddings:
+                        encoder_hidden_states = batch["input_ids"]
+                    else:
+                        encoder_hidden_states = self._encode_prompt(
+                            input_ids=batch["input_ids"],
+                            attention_mask=batch["attention_mask"],
+                        )
 
                     if self._unwrap_model(model=self.unet).config.in_channels == channels * 2:
                         noisy_model_input = torch.cat([noisy_model_input, noisy_model_input], dim=1)
@@ -505,7 +538,7 @@ class DreamboothTrainer(BaseTrainer):
                         # Compute the loss
                         loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                     else:
-                        loss = self._snr_gamma_weighting(model_pred, target, timesteps)
+                        loss = self._apply_snr_gamma_weighting(model_pred, target, timesteps)
 
                     if self.schema.with_prior_preservation:
                         # Add the prior loss to the instance loss
@@ -529,6 +562,7 @@ class DreamboothTrainer(BaseTrainer):
                 if self.accelerator.sync_gradients:
                     progress_bar.update(1)
                     global_step += 1
+
                     if self.accelerator.is_main_process:
                         if global_step % self.schema.checkpointing_steps == 0:
                             if self.schema.checkpoints_total_limit:
@@ -541,7 +575,11 @@ class DreamboothTrainer(BaseTrainer):
                         images = []
 
                         if self.schema.validation_prompt and global_step % self.schema.validation_steps == 0:
-                            images = self._validate(global_step=global_step)
+                            images = self._validate(
+                                global_step=global_step,
+                                prompt_embeds=validation_prompt_encoder_hidden_states,
+                                negative_prompt_embeds=validation_prompt_negative_prompt_embeds,
+                            )
 
                 logs = {"loss": loss.detach().item(), "lr": learning_rate_scheduler.get_last_lr()[0]}
                 progress_bar.set_postfix(**logs)
