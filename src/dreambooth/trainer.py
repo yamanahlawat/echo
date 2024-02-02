@@ -328,6 +328,8 @@ class DreamboothTrainer(BaseTrainer):
             torch_dtype=self.weight_dtype,
             safety_checker=None,
             vae=self.vae,
+            width=self.schema.width,
+            height=self.schema.height,
         )
 
         scheduler_args = self._get_scheduler_args(pipeline=pipeline)
