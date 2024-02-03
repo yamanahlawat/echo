@@ -3,12 +3,12 @@
 # Does not convert optimizer state or any other thing.
 
 import argparse
-import os.path as osp
 import re
+from pathlib import Path
 
 import torch
+from loguru import logger
 from safetensors.torch import load_file, save_file
-
 
 # =================#
 # UNet Conversion #
@@ -174,6 +174,17 @@ def reshape_weight_for_sd(w):
 
 
 def convert_vae_state_dict(vae_state_dict):
+    def adjust_bias_shapes(state_dict):
+        """
+        Adjust the shapes of bias tensors from [512, 1] or [512, 1, 1] to [512].
+        """
+        for name, param in state_dict.items():
+            if "bias" in name and param.dim() in [2, 3] and param.size(1) == 1:
+                new_param = param.squeeze()
+                logger.info(f"Adjusting bias shape of {name}, {param.shape} to {new_param.shape}")
+                # Squeeze the tensor to reduce its dimensions to [512]
+                state_dict[name] = new_param
+
     mapping = {k: k for k in vae_state_dict.keys()}
     for k, v in mapping.items():
         for sd_part, hf_part in vae_conversion_map:
@@ -200,6 +211,7 @@ def convert_vae_state_dict(vae_state_dict):
             print(f"Renaming {k} to {v}")
             new_state_dict[v] = reshape_weight_for_sd(new_state_dict[k])
             del new_state_dict[k]
+    adjust_bias_shapes(new_state_dict)
     return new_state_dict
 
 
@@ -278,6 +290,62 @@ def convert_text_enc_state_dict(text_enc_dict):
     return text_enc_dict
 
 
+def convert_to_safetensors(model_path, checkpoint_path, use_safetensors, is_half_precision):
+    # Load models from safetensors if it exists, if it doesn't pytorch
+    # Path for safetensors
+    unet_path = model_path / "unet" / "diffusion_pytorch_model.safetensors"
+    vae_path = model_path / "vae" / "diffusion_pytorch_model.safetensors"
+    text_enc_path = model_path / "text_encoder" / "model.safetensors"
+    if unet_path.exists():
+        unet_state_dict = load_file(unet_path, device="cpu")
+    else:
+        unet_path = model_path / "unet" / "diffusion_pytorch_model.bin"
+        unet_state_dict = torch.load(unet_path, map_location="cpu")
+
+    if Path(vae_path).exists():
+        vae_state_dict = load_file(vae_path, device="cpu")
+    else:
+        vae_path = model_path / "vae" / "diffusion_pytorch_model.bin"
+        vae_state_dict = torch.load(vae_path, map_location="cpu")
+
+    if Path(text_enc_path).exists():
+        text_enc_dict = load_file(text_enc_path, device="cpu")
+    else:
+        text_enc_path = model_path / "text_encoder" / "pytorch_model.bin"
+        text_enc_dict = torch.load(text_enc_path, map_location="cpu")
+
+    # Convert the UNet model
+    unet_state_dict = convert_unet_state_dict(unet_state_dict)
+    unet_state_dict = {f"model.diffusion_model.{k}": v for k, v in unet_state_dict.items()}
+
+    # Convert the VAE model
+    vae_state_dict = convert_vae_state_dict(vae_state_dict)
+    vae_state_dict = {f"first_stage_model.{k}": v for k, v in vae_state_dict.items()}
+
+    # Easiest way to identify v2.0 model seems to be that the text encoder (OpenCLIP) is deeper
+    is_v20_model = "text_model.encoder.layers.22.layer_norm2.bias" in text_enc_dict
+
+    if is_v20_model:
+        # Need to add the tag 'transformer' in advance so we can knock it out from the final layer-norm
+        text_enc_dict = {f"transformer.{k}": v for k, v in text_enc_dict.items()}
+        text_enc_dict = convert_text_enc_state_dict_v20(text_enc_dict)
+        text_enc_dict = {f"cond_stage_model.model.{k}": v for k, v in text_enc_dict.items()}
+    else:
+        text_enc_dict = convert_text_enc_state_dict(text_enc_dict)
+        text_enc_dict = {f"cond_stage_model.transformer.{k}": v for k, v in text_enc_dict.items()}
+
+    # Put together new checkpoint
+    state_dict = unet_state_dict | vae_state_dict | text_enc_dict
+    if is_half_precision:
+        state_dict = {k: v.half() for k, v in state_dict.items()}
+
+    if use_safetensors:
+        save_file(state_dict, checkpoint_path)
+    else:
+        state_dict = {"state_dict": state_dict}
+        torch.save(state_dict, checkpoint_path)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -292,57 +360,4 @@ if __name__ == "__main__":
 
     assert args.checkpoint_path is not None, "Must provide a checkpoint path!"
 
-    # Path for safetensors
-    unet_path = osp.join(args.model_path, "unet", "diffusion_pytorch_model.safetensors")
-    vae_path = osp.join(args.model_path, "vae", "diffusion_pytorch_model.safetensors")
-    text_enc_path = osp.join(args.model_path, "text_encoder", "model.safetensors")
-
-    # Load models from safetensors if it exists, if it doesn't pytorch
-    if osp.exists(unet_path):
-        unet_state_dict = load_file(unet_path, device="cpu")
-    else:
-        unet_path = osp.join(args.model_path, "unet", "diffusion_pytorch_model.bin")
-        unet_state_dict = torch.load(unet_path, map_location="cpu")
-
-    if osp.exists(vae_path):
-        vae_state_dict = load_file(vae_path, device="cpu")
-    else:
-        vae_path = osp.join(args.model_path, "vae", "diffusion_pytorch_model.bin")
-        vae_state_dict = torch.load(vae_path, map_location="cpu")
-
-    if osp.exists(text_enc_path):
-        text_enc_dict = load_file(text_enc_path, device="cpu")
-    else:
-        text_enc_path = osp.join(args.model_path, "text_encoder", "pytorch_model.bin")
-        text_enc_dict = torch.load(text_enc_path, map_location="cpu")
-
-    # Convert the UNet model
-    unet_state_dict = convert_unet_state_dict(unet_state_dict)
-    unet_state_dict = {"model.diffusion_model." + k: v for k, v in unet_state_dict.items()}
-
-    # Convert the VAE model
-    vae_state_dict = convert_vae_state_dict(vae_state_dict)
-    vae_state_dict = {"first_stage_model." + k: v for k, v in vae_state_dict.items()}
-
-    # Easiest way to identify v2.0 model seems to be that the text encoder (OpenCLIP) is deeper
-    is_v20_model = "text_model.encoder.layers.22.layer_norm2.bias" in text_enc_dict
-
-    if is_v20_model:
-        # Need to add the tag 'transformer' in advance so we can knock it out from the final layer-norm
-        text_enc_dict = {"transformer." + k: v for k, v in text_enc_dict.items()}
-        text_enc_dict = convert_text_enc_state_dict_v20(text_enc_dict)
-        text_enc_dict = {"cond_stage_model.model." + k: v for k, v in text_enc_dict.items()}
-    else:
-        text_enc_dict = convert_text_enc_state_dict(text_enc_dict)
-        text_enc_dict = {"cond_stage_model.transformer." + k: v for k, v in text_enc_dict.items()}
-
-    # Put together new checkpoint
-    state_dict = {**unet_state_dict, **vae_state_dict, **text_enc_dict}
-    if args.half:
-        state_dict = {k: v.half() for k, v in state_dict.items()}
-
-    if args.use_safetensors:
-        save_file(state_dict, args.checkpoint_path)
-    else:
-        state_dict = {"state_dict": state_dict}
-        torch.save(state_dict, args.checkpoint_path)
+    convert_to_safetensors(Path(args.model_path), Path(args.checkpoint_path), args.use_safetensors, args.half)
