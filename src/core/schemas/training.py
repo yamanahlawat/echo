@@ -13,6 +13,10 @@ class TrainingSetupSchema(BaseModel):
     output_dir: Path = Field(
         description="The output directory where the model predictions and checkpoints will be written.",
     )
+    save_safetensors: bool = Field(
+        default=False,
+        description="Whether to save a file .safetensors in the output directory.",
+    )
     seed: int = Field(
         default=None,
         description="A seed for reproducible training.",

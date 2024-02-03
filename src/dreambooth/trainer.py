@@ -4,6 +4,7 @@ import itertools
 import math
 import os
 import platform
+from pathlib import Path
 
 import accelerate
 import diffusers
@@ -19,6 +20,7 @@ from transformers import AutoTokenizer, PretrainedConfig
 
 from src.core.dataset import DreamBoothDataset
 from src.core.trainer import BaseTrainer
+from src.core.utils.convert_diffusers_to_safetensors import convert_to_safetensors
 from src.dreambooth.schemas.training import DreamboothTrainingSchema
 from src.utils.common import collate_fn
 
@@ -391,7 +393,7 @@ class DreamboothTrainer(BaseTrainer):
         torch.cuda.empty_cache()
         return images
 
-    def _save_trained_model(self):
+    def _save_trained_model(self, output_dir: Path):
         if self.accelerator.is_main_process:
             pipeline = StableDiffusionPipeline.from_pretrained(
                 pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
@@ -401,8 +403,8 @@ class DreamboothTrainer(BaseTrainer):
             )
             scheduler_args = self._get_scheduler_args(pipeline=pipeline)
             pipeline.scheduler = pipeline.scheduler.from_config(pipeline.scheduler.config, **scheduler_args)
-            pipeline.save_pretrained(save_directory=self.schema.output_dir)
-            self.logger.info(f"Saving trained model to {self.schema.output_dir}")
+            self.logger.info(f"Saving trained model to {output_dir}")
+            pipeline.save_pretrained(save_directory=output_dir)
             return pipeline
 
     def train(self):
@@ -570,10 +572,17 @@ class DreamboothTrainer(BaseTrainer):
                             if self.schema.checkpoints_total_limit:
                                 self._handle_checkpoint_total_limit()
 
-                            save_path = self.schema.output_dir / f"checkpoint-{global_step}"
-                            self.accelerator.save_state(save_path)
-                            self.logger.info(f"Saving checkpoint at {save_path}")
-
+                            checkpoint_name = f"checkpoint-{global_step}"
+                            save_path = self.schema.output_dir / checkpoint_name
+                            self.logger.info(f"Saving intermediate checkpoint: {global_step} to {save_path}")
+                            self._save_trained_model(output_dir=save_path)
+                            if self.schema.save_safetensors:
+                                self.logger.info(f"Saving checkpoint to {checkpoint_name}.safetensors")
+                                convert_to_safetensors(
+                                    model_path=save_path,
+                                    checkpoint_path=save_path / f"{checkpoint_name}.safetensors",
+                                    use_safetensors=True,
+                                )
                         images = []
 
                         if self.schema.validation_prompt and global_step % self.schema.validation_steps == 0:
@@ -593,7 +602,7 @@ class DreamboothTrainer(BaseTrainer):
 
         self.accelerator.wait_for_everyone()
         if self.accelerator.is_main_process:
-            pipeline = self._save_trained_model()
+            pipeline = self._save_trained_model(output_dir=self.schema.output_dir)
             if self.schema.push_to_hub:
                 self._save_model_card(images=images, pipeline=pipeline)
                 self._upload_repo_to_hub()
