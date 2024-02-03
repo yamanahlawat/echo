@@ -290,7 +290,7 @@ def convert_text_enc_state_dict(text_enc_dict):
     return text_enc_dict
 
 
-def convert_to_safetensors(model_path, checkpoint_path, use_safetensors, is_half_precision):
+def convert_to_safetensors(model_path, checkpoint_path, use_safetensors: bool = True, is_half_precision: bool = False):
     # Load models from safetensors if it exists, if it doesn't pytorch
     # Path for safetensors
     unet_path = model_path / "unet" / "diffusion_pytorch_model.safetensors"
@@ -360,4 +360,9 @@ if __name__ == "__main__":
 
     assert args.checkpoint_path is not None, "Must provide a checkpoint path!"
 
-    convert_to_safetensors(Path(args.model_path), Path(args.checkpoint_path), args.use_safetensors, args.half)
+    convert_to_safetensors(
+        model_path=Path(args.model_path),
+        checkpoint_path=Path(args.checkpoint_path),
+        use_safetensors=args.use_safetensors,
+        is_half_precision=args.half,
+    )
