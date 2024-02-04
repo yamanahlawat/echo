@@ -324,6 +324,7 @@ class BaseTrainer:
         return widget_str
 
     def _save_model_card(self, images, pipeline):
+        logger.info(f"Saving model card with {len(images)} images")
         gallery_widget = self._generate_gallery_widget(images)
 
         tags = [
