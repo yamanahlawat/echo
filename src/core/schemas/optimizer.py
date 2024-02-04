@@ -58,6 +58,7 @@ class OptimizerSchema(BaseModel):
     optimizer: OptimizerEnum = Field(
         default=OptimizerEnum.ADAMW,
         description="Select which optimizer to use.",
+        validate_default=True,
     )
 
     @field_validator("optimizer", mode="after")

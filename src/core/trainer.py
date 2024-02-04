@@ -101,8 +101,6 @@ class BaseTrainer:
                 torch_dtype=torch_dtype,
                 variant=self.schema.variant,
                 safety_checker=None,
-                height=self.schema.height,
-                width=self.schema.width,
             )
             pipeline.set_progress_bar_config(disable=True)
             num_new_images = self.schema.num_class_images - existing_class_images
@@ -118,7 +116,11 @@ class BaseTrainer:
             for item in tqdm(
                 sample_dataloader, desc="Generating class images", disable=not self.accelerator.is_local_main_process
             ):
-                images = pipeline(prompt=item["prompt"]).images
+                images = pipeline(
+                    prompt=item["prompt"],
+                    height=self.schema.height,
+                    width=self.schema.width,
+                ).images
                 for i, image in enumerate(images):
                     image.save(self.schema.class_data_dir / f"image_{i}.png")
 

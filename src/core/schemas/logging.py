@@ -22,6 +22,7 @@ class LoggingSchema(BaseModel):
     report_to: LoggerType = Field(
         default=LoggerType.WANDB,
         description='The integration to report the results and logs to. Use `"all"` to report to all integrations.',
+        validate_default=True,
     )
 
     @field_validator("report_to", mode="after")
