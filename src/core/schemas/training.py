@@ -49,6 +49,7 @@ class TrainingSetupSchema(BaseModel):
     )
 
     @field_validator("output_dir")
+    @classmethod
     def validate_output_dir(cls, value: Path) -> Path:
         if not value.exists():
             logger.info(f"Output directory: '{value}' does not exist. Creating it.")
