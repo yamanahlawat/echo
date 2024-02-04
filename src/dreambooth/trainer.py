@@ -605,6 +605,14 @@ class DreamboothTrainer(BaseTrainer):
             pipeline = self._save_trained_model(output_dir=self.schema.output_dir)
             if self.schema.push_to_hub:
                 self._save_model_card(images=images, pipeline=pipeline)
+                if self.schema.save_safetensors:
+                    safetensors_file_path = f"{self.schema.output_dir / self.schema.instance_prompt}.safetensors"
+                    self.logger.info(f"Saving the trained model {safetensors_file_path}")
+                    convert_to_safetensors(
+                        model_path=self.schema.output_dir,
+                        checkpoint_path=safetensors_file_path,
+                        use_safetensors=True,
+                    )
                 self._upload_repo_to_hub()
 
         self.accelerator.end_training()
