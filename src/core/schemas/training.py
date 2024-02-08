@@ -2,6 +2,7 @@ from pathlib import Path
 
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator, model_validator
+from slugify import slugify
 
 
 class TrainingSetupSchema(BaseModel):
@@ -51,6 +52,7 @@ class TrainingSetupSchema(BaseModel):
     @field_validator("output_dir")
     @classmethod
     def validate_output_dir(cls, value: Path) -> Path:
+        value = value.parent / slugify(value.name)
         if not value.exists():
             logger.info(f"Output directory: '{value}' does not exist. Creating it.")
             value.mkdir(parents=True, exist_ok=True)

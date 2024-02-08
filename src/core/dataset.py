@@ -96,6 +96,7 @@ class DreamBoothDataset(Dataset):
             example["instance_prompt_ids"] = text_inputs.input_ids
             example["instance_attention_mask"] = text_inputs.attention_mask
 
+        self.num_class_images = None
         if self.class_data_dir:
             class_image = Image.open(self.class_images[index % self.num_class_images])
             # remove and add it to the transforms
