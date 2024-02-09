@@ -397,9 +397,12 @@ class DreamboothTrainer(BaseTrainer):
         if self.accelerator.is_main_process:
             pipeline = StableDiffusionPipeline.from_pretrained(
                 pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-                unet=self._unwrap_model(self.unet),
-                variant=self.schema.variant,
                 tokenizer=self._unwrap_model(self.tokenizer),
+                text_encoder=self._unwrap_model(model=self.text_encoder),
+                unet=self._unwrap_model(model=self.unet),
+                variant=self.schema.variant,
+                torch_dtype=self.weight_dtype,
+                vae=self.vae,
             )
             scheduler_args = self._get_scheduler_args(pipeline=pipeline)
             pipeline.scheduler = pipeline.scheduler.from_config(pipeline.scheduler.config, **scheduler_args)
