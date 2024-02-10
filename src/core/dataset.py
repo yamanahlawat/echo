@@ -59,6 +59,7 @@ class DreamBoothDataset(Dataset):
         logger.info(f"Number of instance images: {self.num_instance_images}.")
 
         self.class_data_dir = class_data_dir
+        self.num_class_images = None
         if self.class_data_dir:
             self.class_prompt = class_prompt
             self.class_images = list(self.class_data_dir.glob("*"))
