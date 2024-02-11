@@ -33,14 +33,24 @@ class BaseTrainer:
         # we must initialize the accelerate state before using the logging utility.
         self.accelerator = self._init_accelerator()
         self.weight_dtype = self._get_weight_dtype()
-        self.vae_dtype = torch.float32 if self.schema.no_half_vae else self.weight_dtype
         self._init_logging()
         self.logger = logger
         self.repo_id = self._create_model_repo()
+        # Initialize the models
+        self.vae_dtype = torch.float32 if self.schema.no_half_vae else self.weight_dtype
+        self.pipeline = None
+        if Path(self.pretrained_model_name_or_path).suffix == ModelFileExtensions.SAFETENSORS.value:
+            self.logger.info(f"Loading safetensors pipeline from file: {self.pretrained_model_name_or_path}")
+            self.pipeline = StableDiffusionPipeline.from_single_file(
+                pretrained_model_link_or_path=self.pretrained_model_name_or_path
+            )
+
         self.noise_scheduler = self._init_noise_scheduler()
-        self.vae = self._init_vae()
-        self.vae_scaling_factor = self.vae.config.scaling_factor
         self.unet = self._init_unet()
+        self.vae = self._init_vae()
+
+        # Scale the image latents according to the vae scale factor
+        self.vae_scaling_factor = self.vae.config.scaling_factor
 
         if self.schema.with_prior_preservation:
             self._generate_class_images()
@@ -150,6 +160,8 @@ class BaseTrainer:
         self.logger.info(
             f"Initializing DDPMScheduler noise scheduler from pretrained config {self.schema.pretrained_model_name_or_path}"
         )
+        if self.pipeline:
+            return self.pipeline.scheduler
         return DDPMScheduler.from_pretrained(
             pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
             subfolder=sub_folder,
@@ -160,6 +172,9 @@ class BaseTrainer:
             if Path(vae_name).suffix in ModelFileExtensions.list():
                 self.logger.info(f"Initializing VAE from file: {vae_name}")
                 vae = AutoencoderKL.from_single_file(pretrained_model_link_or_path=vae_name)
+            elif self.pipeline:
+                self.logger.info(f"Initializing VAE from pipeline: {vae_name}")
+                vae = self.pipeline.vae
             else:
                 self.logger.info(f"Initializing VAE from pretrained VAE model: {vae_name}")
                 vae = AutoencoderKL.from_pretrained(
@@ -167,6 +182,9 @@ class BaseTrainer:
                     subfolder=sub_folder,
                     variant=self.schema.variant,
                 )
+        elif self.pipeline:
+            self.logger.info(f"Initializing VAE from pipeline: {self.schema.pretrained_model_name_or_path}")
+            vae = self.pipeline.vae
         else:
             self.logger.info(f"Initializing VAE from pretrained model: {self.schema.pretrained_model_name_or_path}")
             vae = AutoencoderKL.from_pretrained(
@@ -174,18 +192,22 @@ class BaseTrainer:
                 subfolder=sub_folder,
                 variant=self.schema.variant,
             )
-        if vae:
-            vae.requires_grad_(False)
-        vae.to(device=self.accelerator.device, dtype=self.vae_dtype)
+        # Configure VAE
+        self.vae.requires_grad_(False)
+        self.vae.to(device=self.accelerator.device, dtype=self.vae_dtype)
         return vae
 
     def _init_unet(self, sub_folder="unet"):
         self.logger.info(f"Initializing UNet from pretrained model: {self.schema.pretrained_model_name_or_path}")
-        unet = UNet2DConditionModel.from_pretrained(
-            pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-            subfolder=sub_folder,
-            variant=self.schema.variant,
-        )
+        if self.pipeline:
+            unet = self.pipeline.unet
+        else:
+            unet = UNet2DConditionModel.from_pretrained(
+                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+                subfolder=sub_folder,
+                variant=self.schema.variant,
+            )
+        # Configure UNet
         if unet.dtype != torch.float32:
             raise ValueError(
                 f"Unet loaded as datatype {unet.dtype}. Please make sure to always have all model weights in full float32 precision."

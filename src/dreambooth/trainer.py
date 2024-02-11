@@ -29,10 +29,13 @@ class DreamboothTrainer(BaseTrainer):
     def __init__(self, schema: DreamboothTrainingSchema) -> None:
         super().__init__(schema=schema)
         self.logger.info("Initializing Dreambooth trainer...")
+
+        # tokenizer
         self.tokenizer = self._init_tokenizer()
 
         # text encoder
-        self.text_encoder_model_class = self._get_text_encoder_model_class()
+        if not self.pipeline:
+            self.text_encoder_model_class = self._get_text_encoder_model_class()
         self.text_encoder = self._init_text_encoder()
 
         # register hooks for saving and loading
@@ -41,6 +44,8 @@ class DreamboothTrainer(BaseTrainer):
 
     def _init_tokenizer(self, sub_folder: str = "tokenizer"):
         self.logger.info(f"Initializing tokenizer from pretrained model: {self.schema.pretrained_model_name_or_path}")
+        if self.pipeline:
+            return self.pipeline.tokenizer
         return (
             AutoTokenizer.from_pretrained(
                 pretrained_model_name_or_path=self.schema.tokenizer_name,
@@ -55,6 +60,9 @@ class DreamboothTrainer(BaseTrainer):
         )
 
     def _get_text_encoder_model_class(self, sub_folder: str = "text_encoder"):
+        self.logger.info(
+            f"Getting Text Encoder model class from pretrained model: {self.schema.pretrained_model_name_or_path}"
+        )
         text_encoder_config = PretrainedConfig.from_pretrained(
             pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
             subfolder=sub_folder,
@@ -72,14 +80,18 @@ class DreamboothTrainer(BaseTrainer):
             ValueError(f"Unsupported Text Encoder model class: {model_class_name}")
 
     def _init_text_encoder(self, sub_folder: str = "text_encoder"):
-        self.logger.info(
-            f"Initializing text encoder: {self.text_encoder_model_class} from {self.schema.pretrained_model_name_or_path}"
-        )
-        text_encoder = self.text_encoder_model_class.from_pretrained(
-            pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-            variant=self.schema.variant,
-            subfolder=sub_folder,
-        )
+        if self.pipeline:
+            self.logger.info(f"Initializing text encoder  from pipeline: {self.schema.pretrained_model_name_or_path}")
+            text_encoder = self.pipeline.text_encoder
+        else:
+            self.logger.info(
+                f"Initializing text encoder: {self.text_encoder_model_class} from {self.schema.pretrained_model_name_or_path}"
+            )
+            text_encoder = self.text_encoder_model_class.from_pretrained(
+                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+                variant=self.schema.variant,
+                subfolder=sub_folder,
+            )
         if self.schema.train_text_encoder and text_encoder.dtype != torch.float32:
             raise ValueError(
                 f"Text encoder loaded as datatype {text_encoder.dtype}. Please make sure to always have all model weights in full float32 precision."
