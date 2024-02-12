@@ -329,20 +329,29 @@ class DreamboothTrainer(BaseTrainer):
             self.logger.info(f"Prior Preservation Enabled: {self.schema.with_prior_preservation}")
             self.logger.info(f"Prior Preservation Loss Weight: {self.schema.prior_loss_weight}")
 
+    def _init_intermediate_pipeline(self):
+        self.pipeline.unet = self._unwrap_model(model=self.unet)
+        self.pipeline.text_encoder = self._unwrap_model(model=self.text_encoder)
+        self.pipeline.tokenizer = self._unwrap_model(self.tokenizer)
+        return self.pipeline
+
     def _validate(self, global_step: int, prompt_embeds, negative_prompt_embeds):
         self.logger.info("***** Running Validation *****")
         self.logger.info(f"Generating {self.schema.num_validation_images} images for validation")
 
-        pipeline = StableDiffusionPipeline.from_pretrained(
-            pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-            tokenizer=self.tokenizer,
-            text_encoder=self._unwrap_model(model=self.text_encoder),
-            unet=self._unwrap_model(model=self.unet),
-            variant=self.schema.variant,
-            torch_dtype=self.weight_dtype,
-            safety_checker=None,
-            vae=self.vae,
-        )
+        if self.pipeline:
+            pipeline = self._init_intermediate_pipeline()
+        else:
+            pipeline = StableDiffusionPipeline.from_pretrained(
+                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+                tokenizer=self._unwrap_model(self.tokenizer),
+                text_encoder=self._unwrap_model(model=self.text_encoder),
+                unet=self._unwrap_model(model=self.unet),
+                variant=self.schema.variant,
+                torch_dtype=self.weight_dtype,
+                safety_checker=None,
+                vae=self.vae,
+            )
 
         scheduler_args = self._get_scheduler_args(pipeline=pipeline)
 
@@ -407,15 +416,18 @@ class DreamboothTrainer(BaseTrainer):
 
     def _save_trained_model(self, output_dir: Path):
         if self.accelerator.is_main_process:
-            pipeline = StableDiffusionPipeline.from_pretrained(
-                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-                tokenizer=self._unwrap_model(self.tokenizer),
-                text_encoder=self._unwrap_model(model=self.text_encoder),
-                unet=self._unwrap_model(model=self.unet),
-                variant=self.schema.variant,
-                torch_dtype=self.weight_dtype,
-                vae=self.vae,
-            )
+            if self.pipeline:
+                pipeline = self._init_intermediate_pipeline()
+            else:
+                pipeline = StableDiffusionPipeline.from_pretrained(
+                    pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+                    tokenizer=self._unwrap_model(self.tokenizer),
+                    text_encoder=self._unwrap_model(model=self.text_encoder),
+                    unet=self._unwrap_model(model=self.unet),
+                    variant=self.schema.variant,
+                    torch_dtype=self.weight_dtype,
+                    vae=self.vae,
+                )
             scheduler_args = self._get_scheduler_args(pipeline=pipeline)
             pipeline.scheduler = pipeline.scheduler.from_config(pipeline.scheduler.config, **scheduler_args)
             self.logger.info(f"Saving trained model to {output_dir}")
