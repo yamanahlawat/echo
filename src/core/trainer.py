@@ -40,10 +40,7 @@ class BaseTrainer:
         self.vae_dtype = torch.float32 if self.schema.no_half_vae else self.weight_dtype
         self.pipeline = None
         if Path(self.schema.pretrained_model_name_or_path).suffix == ModelFileExtensions.SAFETENSORS.value:
-            self.logger.info(f"Loading safetensors pipeline from file: {self.schema.pretrained_model_name_or_path}")
-            self.pipeline = StableDiffusionPipeline.from_single_file(
-                pretrained_model_link_or_path=self.schema.pretrained_model_name_or_path
-            )
+            self.pipeline = self._init_pipeline()
 
         self.noise_scheduler = self._init_noise_scheduler()
         self.unet = self._init_unet()
@@ -70,6 +67,15 @@ class BaseTrainer:
             gradient_accumulation_steps=self.schema.gradient_accumulation_steps,
             log_with=self.schema.report_to,
             project_config=accelerator_project_config,
+        )
+
+    def _init_pipeline(self):
+        self.logger.info(f"Loading safetensors pipeline from file: {self.schema.pretrained_model_name_or_path}")
+        return StableDiffusionPipeline.from_single_file(
+            pretrained_model_link_or_path=self.schema.pretrained_model_name_or_path,
+            torch_dtype=self.weight_dtype,
+            safety_checker=None,
+            variant=self.schema.variant,
         )
 
     def _init_logging(self):
@@ -106,12 +112,15 @@ class BaseTrainer:
                 torch_dtype = torch.float16
             elif self.schema.prior_generation_precision == "bf16":
                 torch_dtype = torch.bfloat16
-            pipeline = StableDiffusionPipeline.from_pretrained(
-                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-                torch_dtype=torch_dtype,
-                variant=self.schema.variant,
-                safety_checker=None,
-            )
+            if self.pipeline:
+                pipeline = self.pipeline
+            else:
+                pipeline = StableDiffusionPipeline.from_pretrained(
+                    pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+                    torch_dtype=torch_dtype,
+                    variant=self.schema.variant,
+                    safety_checker=None,
+                )
             pipeline.set_progress_bar_config(disable=True)
             num_new_images = self.schema.num_class_images - existing_class_images
             logger.info(f"Generating {num_new_images} additional class images using prompt: {self.schema.class_prompt}")
