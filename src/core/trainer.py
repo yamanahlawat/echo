@@ -73,7 +73,6 @@ class BaseTrainer:
         self.logger.info(f"Loading safetensors pipeline from file: {self.schema.pretrained_model_name_or_path}")
         return StableDiffusionPipeline.from_single_file(
             pretrained_model_link_or_path=self.schema.pretrained_model_name_or_path,
-            torch_dtype=self.weight_dtype,
             safety_checker=None,
             variant=self.schema.variant,
         )
