@@ -39,10 +39,10 @@ class BaseTrainer:
         # Initialize the models
         self.vae_dtype = torch.float32 if self.schema.no_half_vae else self.weight_dtype
         self.pipeline = None
-        if Path(self.pretrained_model_name_or_path).suffix == ModelFileExtensions.SAFETENSORS.value:
-            self.logger.info(f"Loading safetensors pipeline from file: {self.pretrained_model_name_or_path}")
+        if Path(self.schema.pretrained_model_name_or_path).suffix == ModelFileExtensions.SAFETENSORS.value:
+            self.logger.info(f"Loading safetensors pipeline from file: {self.schema.pretrained_model_name_or_path}")
             self.pipeline = StableDiffusionPipeline.from_single_file(
-                pretrained_model_link_or_path=self.pretrained_model_name_or_path
+                pretrained_model_link_or_path=self.schema.pretrained_model_name_or_path
             )
 
         self.noise_scheduler = self._init_noise_scheduler()
@@ -193,8 +193,8 @@ class BaseTrainer:
                 variant=self.schema.variant,
             )
         # Configure VAE
-        self.vae.requires_grad_(False)
-        self.vae.to(device=self.accelerator.device, dtype=self.vae_dtype)
+        vae.requires_grad_(False)
+        vae.to(device=self.accelerator.device, dtype=self.vae_dtype)
         return vae
 
     def _init_unet(self, sub_folder="unet"):
