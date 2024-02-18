@@ -40,15 +40,16 @@ class LoggingSchema(BaseModel):
 
             import wandb
 
-            if not (wandb_api_key := self.wandb_api_key.get_secret_value() or os.getenv("WANDB_API_KEY")):
-                raise ValueError(
-                    "You must provide a wandb_api_key or have WANDB_API_KEY set in your environment variables."
-                    "or You must be logged in to Wandb(run: `wandb login`)"
-                )
-            try:
-                wandb.login(key=wandb_api_key, verify=True)
-            except Exception as error:
-                raise ValueError(f"Failed to login to wandb with the provided API key: {error}") from error
+            if not wandb.api.api_key:
+                if not (wandb_api_key := self.wandb_api_key.get_secret_value() or os.getenv("WANDB_API_KEY")):
+                    raise ValueError(
+                        "You must provide a wandb_api_key or have WANDB_API_KEY set in your environment variables."
+                        "or You must be logged in to Wandb(run: `wandb login`)"
+                    )
+                try:
+                    wandb.login(key=wandb_api_key, verify=True)
+                except Exception as error:
+                    raise ValueError(f"Failed to login to wandb with the provided API key: {error}") from error
 
         elif self.report_to == LoggerType.TENSORBOARD and not is_tensorboard_available():
             error = "Make sure to install `tensorboard` (pip install tensorboard) if you want to use it for logging during training."
