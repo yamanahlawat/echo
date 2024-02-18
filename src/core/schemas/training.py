@@ -65,6 +65,7 @@ class TrainingSetupSchema(BaseModel):
             error = "`train_text_encoder` and `pre_compute_text_embeddings` are not compatible."
             logger.error(error)
             raise ValueError(error)
+        return self
 
 
 class AdvancedTrainingFeaturesSchema(BaseModel):
