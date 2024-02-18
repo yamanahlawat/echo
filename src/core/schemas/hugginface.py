@@ -1,5 +1,5 @@
 from loguru import logger
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, SecretStr, model_validator
 
 
 class HuggingFaceIntegrationSchema(BaseModel):
@@ -11,7 +11,7 @@ class HuggingFaceIntegrationSchema(BaseModel):
     push_to_hub: bool = Field(
         description="Whether or not to push the model to the Hugging Face Hub after it's trained.",
     )
-    hub_token: str | None = Field(
+    hub_token: SecretStr | None = Field(
         default=None,
         description=(
             "The token to use to push to the Model Hub."

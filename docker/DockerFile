@@ -9,10 +9,19 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install Python 3.11 and other system dependencies
 RUN apt-get update && \
-    apt-get install -y software-properties-common tmux wget && \
+    apt-get install -y software-properties-common tmux wget openssh-server && \
     add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && \
     apt-get install -y git python3.11 python3.11-distutils python3-pip
+
+# SSH setup
+RUN mkdir /root/.ssh && \
+    chmod 0700 /root/.ssh && \
+    echo "PermitRootLogin prohibit-password" >> /etc/ssh/sshd_config && \
+    echo "PasswordAuthentication no" >> /etc/ssh/sshd_config && \
+    # Ensure SSH keys are enforced
+    echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config && \
+    service ssh start
 
 # Update Python alternatives to use Python 3.11 as the default
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
