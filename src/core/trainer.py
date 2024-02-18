@@ -155,7 +155,7 @@ class BaseTrainer:
             logger.info(f"Creating model repo with id: {repo_id}")
             repo = create_repo(
                 repo_id=repo_id,
-                token=self.schema.hub_token,
+                token=self.schema.hub_token.get_secret_value(),
                 private=self.schema.create_private_repo,
                 exist_ok=True,
             )
@@ -396,7 +396,7 @@ class BaseTrainer:
             folder_path=self.schema.output_dir,
             commit_message=f"Trained DreamBooth model {self.schema.instance_prompt}",
             ignore_patterns=["step_*", "epoch_*"],
-            token=self.schema.hub_token,
+            token=self.schema.hub_token.get_secret_value(),
         )
 
     def _cache_latents(self, train_dataloader):
