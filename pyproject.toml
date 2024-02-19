@@ -27,7 +27,7 @@ python-slugify = {extras = ["unidecode"], version = "^8.0.4"}
 ipdb = "^0.13.13"
 ipython = "^8.21.0"
 ruff = "^0.1.12"
-pre-commit = "^3.6.1"
+pre-commit = "^3.6.2"
 
 [build-system]
 requires = ["poetry-core"]
