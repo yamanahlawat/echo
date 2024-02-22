@@ -41,13 +41,14 @@ class LoggingSchema(BaseModel):
             import wandb
 
             if not wandb.api.api_key:
-                if not (wandb_api_key := self.wandb_api_key.get_secret_value() or os.getenv("WANDB_API_KEY")):
+                # check if wandb_api_key is not set
+                if not self.wandb_api_key or os.getenv("WANDB_API_KEY"):
                     raise ValueError(
                         "You must provide a wandb_api_key or have WANDB_API_KEY set in your environment variables."
                         "or You must be logged in to Wandb(run: `wandb login`)"
                     )
                 try:
-                    wandb.login(key=wandb_api_key, verify=True)
+                    wandb.login(key=self.wandb_api_key.get_secret_value(), verify=True)
                 except Exception as error:
                     raise ValueError(f"Failed to login to wandb with the provided API key: {error}") from error
 
