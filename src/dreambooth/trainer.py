@@ -13,12 +13,13 @@ import torch
 import torch.nn.functional as F
 import wandb
 from accelerate.utils.dataclasses import LoggerType
-from diffusers import StableDiffusionPipeline, UNet2DConditionModel
+from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer, PretrainedConfig
 
-from src.core.dataset import DreamBoothDataset
+from src.core.constants import ModelFileExtensions
+from src.core.dataset import DreamBoothDataset, PromptDataset
 from src.core.trainer import BaseTrainer
 from src.core.utils.convert_diffusers_to_safetensors import convert_to_safetensors
 from src.dreambooth.schemas.training import DreamboothTrainingSchema
@@ -29,6 +30,21 @@ class DreamboothTrainer(BaseTrainer):
     def __init__(self, schema: DreamboothTrainingSchema) -> None:
         super().__init__(schema=schema)
         self.logger.info("Initializing Dreambooth trainer...")
+
+        # Initialize the models
+        self.pipeline = None
+        if Path(self.schema.pretrained_model_name_or_path).suffix == ModelFileExtensions.SAFETENSORS.value:
+            self.pipeline = self._init_pipeline()
+
+        self.noise_scheduler = self._init_noise_scheduler()
+        self.unet = self._init_unet()
+        self.vae = self._init_vae()
+
+        # Scale the image latents according to the vae scale factor
+        self.vae_scaling_factor = self.vae.config.scaling_factor
+
+        if self.schema.with_prior_preservation:
+            self._generate_class_images()
 
         # tokenizer
         self.tokenizer = self._init_tokenizer()
@@ -41,6 +57,74 @@ class DreamboothTrainer(BaseTrainer):
         # register hooks for saving and loading
         self.accelerator.register_save_state_pre_hook(self._save_model_hook)
         self.accelerator.register_load_state_pre_hook(self._load_model_hook)
+
+    def _init_pipeline(self):
+        self.logger.info(f"Loading safetensors pipeline from file: {self.schema.pretrained_model_name_or_path}")
+        return StableDiffusionPipeline.from_single_file(
+            pretrained_model_link_or_path=self.schema.pretrained_model_name_or_path,
+            safety_checker=None,
+            variant=self.schema.variant,
+        )
+
+    def _init_noise_scheduler(self, sub_folder: str = "scheduler"):
+        self.logger.info(
+            f"Initializing DDPMScheduler noise scheduler from pretrained config {self.schema.pretrained_model_name_or_path}"
+        )
+        if self.pipeline:
+            return self.pipeline.scheduler
+        return DDPMScheduler.from_pretrained(
+            pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+            subfolder=sub_folder,
+        )
+
+    def _init_unet(self, sub_folder="unet"):
+        self.logger.info(f"Initializing UNet from pretrained model: {self.schema.pretrained_model_name_or_path}")
+        if self.pipeline:
+            unet = self.pipeline.unet
+        else:
+            unet = UNet2DConditionModel.from_pretrained(
+                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+                subfolder=sub_folder,
+                variant=self.schema.variant,
+            )
+        # Configure UNet
+        if unet.dtype != torch.float32:
+            raise ValueError(
+                f"Unet loaded as datatype {unet.dtype}. Please make sure to always have all model weights in full float32 precision."
+            )
+        if self.schema.enable_xformers_memory_efficient_attention:
+            unet.enable_xformers_memory_efficient_attention()
+        return unet
+
+    def _init_vae(self, sub_folder: str = "vae"):
+        if vae_name := self.schema.pretrained_vae_name_or_path:
+            if Path(vae_name).suffix in ModelFileExtensions.list():
+                self.logger.info(f"Initializing VAE from file: {vae_name}")
+                vae = AutoencoderKL.from_single_file(pretrained_model_link_or_path=vae_name)
+            elif self.pipeline:
+                self.logger.info(f"Initializing VAE from pipeline: {vae_name}")
+                vae = self.pipeline.vae
+            else:
+                self.logger.info(f"Initializing VAE from pretrained VAE model: {vae_name}")
+                vae = AutoencoderKL.from_pretrained(
+                    pretrained_model_name_or_path=self.schema.pretrained_vae_name_or_path,
+                    subfolder=sub_folder,
+                    variant=self.schema.variant,
+                )
+        elif self.pipeline:
+            self.logger.info(f"Initializing VAE from pipeline: {self.schema.pretrained_model_name_or_path}")
+            vae = self.pipeline.vae
+        else:
+            self.logger.info(f"Initializing VAE from pretrained model: {self.schema.pretrained_model_name_or_path}")
+            vae = AutoencoderKL.from_pretrained(
+                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+                subfolder=sub_folder,
+                variant=self.schema.variant,
+            )
+        # Configure VAE
+        vae.requires_grad_(False)
+        vae.to(device=self.accelerator.device, dtype=self.vae_dtype)
+        return vae
 
     def _init_tokenizer(self, sub_folder: str = "tokenizer"):
         self.logger.info(f"Initializing tokenizer from pretrained model: {self.schema.pretrained_model_name_or_path}")
@@ -99,6 +183,56 @@ class DreamboothTrainer(BaseTrainer):
         if not self.schema.train_text_encoder:
             text_encoder.requires_grad_(False)
         return text_encoder
+
+    def _generate_class_images(self):
+        existing_class_images = len(list(self.schema.class_data_dir.iterdir()))
+        if existing_class_images < self.schema.num_class_images:
+            torch_dtype = torch.float16 if self.accelerator.device.type == "cuda" else torch.float32
+            if self.schema.prior_generation_precision == "fp32":
+                torch_dtype = torch.float32
+            elif self.schema.prior_generation_precision == "fp16":
+                torch_dtype = torch.float16
+            elif self.schema.prior_generation_precision == "bf16":
+                torch_dtype = torch.bfloat16
+            if self.pipeline:
+                pipeline = self.pipeline
+            else:
+                pipeline = StableDiffusionPipeline.from_pretrained(
+                    pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
+                    torch_dtype=torch_dtype,
+                    variant=self.schema.variant,
+                    safety_checker=None,
+                )
+            pipeline.set_progress_bar_config(disable=True)
+            num_new_images = self.schema.num_class_images - existing_class_images
+            self.logger.info(
+                f"Generating {num_new_images} additional class images using prompt: {self.schema.class_prompt}"
+            )
+            sample_dataset = PromptDataset(prompt=self.schema.class_prompt, num_samples=num_new_images)
+            sample_dataloader = torch.utils.data.DataLoader(
+                sample_dataset,
+                batch_size=self.schema.sample_batch_size,
+            )
+            sample_dataloader = self.accelerator.prepare(sample_dataloader)
+            pipeline.to(device=self.accelerator.device)
+
+            for item in tqdm(
+                sample_dataloader, desc="Generating class images", disable=not self.accelerator.is_local_main_process
+            ):
+                images = pipeline(
+                    prompt=item["prompt"],
+                    height=self.schema.height,
+                    width=self.schema.width,
+                ).images
+                for i, image in enumerate(images):
+                    image.save(self.schema.class_data_dir / f"image_{i}.png")
+
+            del pipeline
+            torch.cuda.empty_cache()
+        else:
+            self.logger.info(
+                f"Found {existing_class_images} class images, which is more than the required {self.schema.num_class_images}."
+            )
 
     def _compute_text_embeddings(self, prompt: str):
         with torch.no_grad():
