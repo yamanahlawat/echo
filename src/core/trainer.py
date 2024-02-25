@@ -1,5 +1,4 @@
 import logging
-from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -8,7 +7,7 @@ from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
 from accelerate.utils.dataclasses import PrecisionType
-from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline, UNet2DConditionModel
+from diffusers import StableDiffusionPipeline
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import compute_snr
 from diffusers.utils.logging import set_verbosity_error, set_verbosity_info
@@ -18,8 +17,7 @@ from loguru import logger as train_logger
 from pydantic import BaseModel
 from tqdm.auto import tqdm
 
-from src.core.constants import LearningRateSchedulerEnum, ModelFileExtensions, OptimizerEnum
-from src.core.dataset import PromptDataset
+from src.core.constants import LearningRateSchedulerEnum, OptimizerEnum
 from src.core.factory import optimizers
 from src.core.factory.lr_schedulers import get_cosine_annealing_scheduler, get_cosine_annealing_warm_restarts_scheduler
 
@@ -36,24 +34,11 @@ class BaseTrainer:
         self._init_logging()
         self.logger = logger
         self.repo_id = self._create_model_repo()
-        # Initialize the models
+
         self.vae_dtype = torch.float32 if self.schema.no_half_vae else self.weight_dtype
-        self.pipeline = None
-        if Path(self.schema.pretrained_model_name_or_path).suffix == ModelFileExtensions.SAFETENSORS.value:
-            self.pipeline = self._init_pipeline()
-
-        self.noise_scheduler = self._init_noise_scheduler()
-        self.unet = self._init_unet()
-        self.vae = self._init_vae()
-
-        # Scale the image latents according to the vae scale factor
-        self.vae_scaling_factor = self.vae.config.scaling_factor
-
-        if self.schema.with_prior_preservation:
-            self._generate_class_images()
 
         # Enable TF32 for faster training on Ampere GPUs,
-        # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
+        # https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         if self.schema.allow_tf32:
             self._allow_tf32()
 
@@ -67,14 +52,6 @@ class BaseTrainer:
             gradient_accumulation_steps=self.schema.gradient_accumulation_steps,
             log_with=self.schema.report_to,
             project_config=accelerator_project_config,
-        )
-
-    def _init_pipeline(self):
-        self.logger.info(f"Loading safetensors pipeline from file: {self.schema.pretrained_model_name_or_path}")
-        return StableDiffusionPipeline.from_single_file(
-            pretrained_model_link_or_path=self.schema.pretrained_model_name_or_path,
-            safety_checker=None,
-            variant=self.schema.variant,
         )
 
     def _init_logging(self):
@@ -101,54 +78,6 @@ class BaseTrainer:
         model = model._orig_mod if is_compiled_module(model) else model
         return model
 
-    def _generate_class_images(self):
-        existing_class_images = len(list(self.schema.class_data_dir.iterdir()))
-        if existing_class_images < self.schema.num_class_images:
-            torch_dtype = torch.float16 if self.accelerator.device.type == "cuda" else torch.float32
-            if self.schema.prior_generation_precision == "fp32":
-                torch_dtype = torch.float32
-            elif self.schema.prior_generation_precision == "fp16":
-                torch_dtype = torch.float16
-            elif self.schema.prior_generation_precision == "bf16":
-                torch_dtype = torch.bfloat16
-            if self.pipeline:
-                pipeline = self.pipeline
-            else:
-                pipeline = StableDiffusionPipeline.from_pretrained(
-                    pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-                    torch_dtype=torch_dtype,
-                    variant=self.schema.variant,
-                    safety_checker=None,
-                )
-            pipeline.set_progress_bar_config(disable=True)
-            num_new_images = self.schema.num_class_images - existing_class_images
-            logger.info(f"Generating {num_new_images} additional class images using prompt: {self.schema.class_prompt}")
-            sample_dataset = PromptDataset(prompt=self.schema.class_prompt, num_samples=num_new_images)
-            sample_dataloader = torch.utils.data.DataLoader(
-                sample_dataset,
-                batch_size=self.schema.sample_batch_size,
-            )
-            sample_dataloader = self.accelerator.prepare(sample_dataloader)
-            pipeline.to(device=self.accelerator.device)
-
-            for item in tqdm(
-                sample_dataloader, desc="Generating class images", disable=not self.accelerator.is_local_main_process
-            ):
-                images = pipeline(
-                    prompt=item["prompt"],
-                    height=self.schema.height,
-                    width=self.schema.width,
-                ).images
-                for i, image in enumerate(images):
-                    image.save(self.schema.class_data_dir / f"image_{i}.png")
-
-            del pipeline
-            torch.cuda.empty_cache()
-        else:
-            logger.info(
-                f"Found {existing_class_images} class images, which is more than the required {self.schema.num_class_images}."
-            )
-
     def _create_model_repo(self):
         if self.schema.push_to_hub:
             repo_id = self.schema.hub_model_id or self.schema.output_dir.name
@@ -163,66 +92,6 @@ class BaseTrainer:
             return repo.repo_id
         else:
             logger.warn("Model will not be pushed to the Huggingface.")
-
-    def _init_noise_scheduler(self, sub_folder: str = "scheduler"):
-        self.logger.info(
-            f"Initializing DDPMScheduler noise scheduler from pretrained config {self.schema.pretrained_model_name_or_path}"
-        )
-        if self.pipeline:
-            return self.pipeline.scheduler
-        return DDPMScheduler.from_pretrained(
-            pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-            subfolder=sub_folder,
-        )
-
-    def _init_vae(self, sub_folder: str = "vae"):
-        if vae_name := self.schema.pretrained_vae_name_or_path:
-            if Path(vae_name).suffix in ModelFileExtensions.list():
-                self.logger.info(f"Initializing VAE from file: {vae_name}")
-                vae = AutoencoderKL.from_single_file(pretrained_model_link_or_path=vae_name)
-            elif self.pipeline:
-                self.logger.info(f"Initializing VAE from pipeline: {vae_name}")
-                vae = self.pipeline.vae
-            else:
-                self.logger.info(f"Initializing VAE from pretrained VAE model: {vae_name}")
-                vae = AutoencoderKL.from_pretrained(
-                    pretrained_model_name_or_path=self.schema.pretrained_vae_name_or_path,
-                    subfolder=sub_folder,
-                    variant=self.schema.variant,
-                )
-        elif self.pipeline:
-            self.logger.info(f"Initializing VAE from pipeline: {self.schema.pretrained_model_name_or_path}")
-            vae = self.pipeline.vae
-        else:
-            self.logger.info(f"Initializing VAE from pretrained model: {self.schema.pretrained_model_name_or_path}")
-            vae = AutoencoderKL.from_pretrained(
-                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-                subfolder=sub_folder,
-                variant=self.schema.variant,
-            )
-        # Configure VAE
-        vae.requires_grad_(False)
-        vae.to(device=self.accelerator.device, dtype=self.vae_dtype)
-        return vae
-
-    def _init_unet(self, sub_folder="unet"):
-        self.logger.info(f"Initializing UNet from pretrained model: {self.schema.pretrained_model_name_or_path}")
-        if self.pipeline:
-            unet = self.pipeline.unet
-        else:
-            unet = UNet2DConditionModel.from_pretrained(
-                pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
-                subfolder=sub_folder,
-                variant=self.schema.variant,
-            )
-        # Configure UNet
-        if unet.dtype != torch.float32:
-            raise ValueError(
-                f"Unet loaded as datatype {unet.dtype}. Please make sure to always have all model weights in full float32 precision."
-            )
-        if self.schema.enable_xformers_memory_efficient_attention:
-            unet.enable_xformers_memory_efficient_attention()
-        return unet
 
     def _allow_tf32(self):
         torch.backends.cuda.matmul.allow_tf32 = True
