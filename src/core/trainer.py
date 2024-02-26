@@ -82,6 +82,8 @@ class BaseTrainer:
         if self.schema.push_to_hub:
             repo_id = self.schema.hub_model_id or self.schema.output_dir.name
             logger.info(f"Creating model repo with id: {repo_id}")
+            if self.schema.hub_organization_id:
+                repo_id = f"{self.schema.hub_organization_id}/{repo_id}"
             repo = create_repo(
                 repo_id=repo_id,
                 token=self.schema.hub_token.get_secret_value(),

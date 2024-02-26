@@ -23,6 +23,10 @@ class HuggingFaceIntegrationSchema(BaseModel):
         default=None,
         description="The name of the repository to keep in sync with the local `output_dir`.",
     )
+    hub_organization_id: str | None = Field(
+        default=None,
+        description="The organization in which to push the trained model to the Hugging Face Hub.",
+    )
     create_private_repo: bool = Field(
         default=True,
         description="Whether to create a private repository on the Hugging Face Hub.",
