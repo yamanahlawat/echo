@@ -237,13 +237,11 @@ class BaseTrainer:
         ]
         tags_list = "\n".join(f"- {tag}" for tag in tags)
 
-        # since self.pipeline is only there when there is a .safetensors file so we omit the base model
-        # as huggingface only takes the name of the model on the hub
         repo_config = (
             "---\n"
             "license: creativeml-openrail-m\n"
-            + ("" if self.pipeline else f"base_model: {self.schema.pretrained_model_name_or_path}\n")
-            + f"instance_prompt: {self.schema.instance_prompt}\n"
+            f"base_model: {self.schema.pretrained_model_name_or_path}\n"
+            f"instance_prompt: {self.schema.instance_prompt}\n"
             "library_name: diffusers\n"
             "tags:\n"
             f"{tags_list}\n"
