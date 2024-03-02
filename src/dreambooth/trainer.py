@@ -746,10 +746,7 @@ class DreamboothTrainer(BaseTrainer):
                                 )
 
                         images = []
-                        if self.schema.validation_prompt and (
-                            global_step % self.schema.validation_steps == 0
-                            or global_step == self.schema.max_train_steps
-                        ):
+                        if self.schema.validation_prompt and global_step % self.schema.validation_steps == 0:
                             images = self._validate(
                                 global_step=global_step,
                                 prompt_embeds=validation_prompt_encoder_hidden_states,
@@ -768,6 +765,11 @@ class DreamboothTrainer(BaseTrainer):
         if self.accelerator.is_main_process:
             pipeline = self._save_trained_model(output_dir=self.schema.output_dir)
             if self.schema.push_to_hub:
+                images = self._validate(
+                    global_step=self.schema.max_train_steps,
+                    prompt_embeds=validation_prompt_encoder_hidden_states,
+                    negative_prompt_embeds=validation_prompt_negative_prompt_embeds,
+                )
                 self._save_model_card(images=images, pipeline=pipeline)
                 if self.schema.save_safetensors:
                     safetensors_file_path = f"{self.schema.output_dir / self.schema.instance_prompt}.safetensors"
