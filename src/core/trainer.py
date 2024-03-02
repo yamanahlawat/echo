@@ -226,9 +226,11 @@ class BaseTrainer:
 
     def _save_model_card(self, images, pipeline):
         if not images:
-            raise ValueError("No images found for model card")
-        logger.info(f"Saving model card with {len(images)} images")
-        gallery_widget = self._generate_gallery_widget(images)
+            logger.error("No images found for model card. Skipping gallery widget.")
+            gallery_widget = ""  # No gallery widget if there are no images
+        else:
+            logger.info(f"Saving model card with {len(images)} images")
+            gallery_widget = self._generate_gallery_widget(images)
 
         tags = [
             "stable-diffusion" if isinstance(pipeline, StableDiffusionPipeline) else "if",
