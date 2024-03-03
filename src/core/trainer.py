@@ -179,7 +179,6 @@ class BaseTrainer:
             checkpoint_path = self._get_all_checkpoints_paths()[-1]
         else:
             checkpoint_path = self.schema.resume_from_checkpoint
-        # TODO: check if checkpoint doesn't exist should we start the training from start or raise error
         if not checkpoint_path.exists():
             raise ValueError(f"Checkpoint path `{self.schema.resume_from_checkpoint}` does not exist.")
         logger.info(f"Resuming training from checkpoint: {checkpoint_path}")
