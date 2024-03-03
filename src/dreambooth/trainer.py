@@ -4,6 +4,7 @@ import itertools
 import math
 import os
 import platform
+import shutil
 from pathlib import Path
 
 import accelerate
@@ -50,7 +51,9 @@ class DreamboothTrainer(BaseTrainer):
         self.tokenizer = self._init_tokenizer()
 
         # text encoder
-        if not self.pipeline:
+        if self.pipeline:
+            self.text_encoder_model_class = self.pipeline.text_encoder.__class__
+        else:
             self.text_encoder_model_class = self._get_text_encoder_model_class()
         self.text_encoder = self._init_text_encoder()
 
@@ -736,14 +739,20 @@ class DreamboothTrainer(BaseTrainer):
                             checkpoint_name = f"checkpoint-{global_step}"
                             save_path = self.schema.output_dir / checkpoint_name
                             self.logger.info(f"Saving intermediate checkpoint: {global_step} to {save_path}")
-                            self._save_trained_model(output_dir=save_path)
+                            # save accelerator state
+                            self.accelerator.save_state(output_dir=save_path, safe_serialization=True)
+                            # save intermediate trained model for converting to safetensors
+                            intermediate_trained_model_path = save_path / "trained_model"
+                            self._save_trained_model(intermediate_trained_model_path)
                             if self.schema.save_safetensors:
                                 self.logger.info(f"Saving checkpoint to {checkpoint_name}.safetensors")
                                 convert_to_safetensors(
-                                    model_path=save_path,
+                                    model_path=intermediate_trained_model_path,
                                     checkpoint_path=save_path / f"{checkpoint_name}.safetensors",
                                     use_safetensors=True,
                                 )
+                            # remove intermediate trained model
+                            shutil.rmtree(path=intermediate_trained_model_path)
 
                         images = []
                         if self.schema.validation_prompt and global_step % self.schema.validation_steps == 0:
