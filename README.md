@@ -9,14 +9,14 @@ Our aim is to provide an intuitive and powerful tool for customizing and enhanci
 ## Table of Contents
 
 - [⛩ | Table of Contents](#table-of-contents)
-- [👋 | Introduction](#👋--introduction)
-- [💻 | Installation](#💻--installation)
-- [📈 | Usage](#📈--usage)
-- [🗒️ | Requirements](#🗒️--requirements)
-- [📅 | Future Plans](#📅--future-plans)
-- [📁 | Directory Structure](#📁--directory-structure)
-- [🤝 | Community and Contributing](#🤝--community-and-contributing)
-- [🪪 | License](#🪪--license)
+- [👋 | Introduction](#--introduction)
+- [💻 | Installation](#--installation)
+- [📈 | Usage](#--usage)
+- [🗒️ | Requirements](#--requirements)
+- [📅 | Future Plans](#--future-plans)
+- [📁 | Directory Structure](#--directory-structure)
+- [🤝 | Community and Contributing](#--community-and-contributing)
+- [🪪 | License](#--license)
 
 ## 👋 | Introduction
 
