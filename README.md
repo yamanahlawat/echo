@@ -10,9 +10,9 @@ Our aim is to provide an intuitive and powerful tool for customizing and enhanci
 
 - [⛩ | Table of Contents](#table-of-contents)
 - [👋 | Introduction](#--introduction)
+- [🗒️ | Requirements](#--requirements)
 - [💻 | Installation](#--installation)
 - [📈 | Usage](#--usage)
-- [🗒️ | Requirements](#--requirements)
 - [📅 | Future Plans](#--future-plans)
 - [📁 | Directory Structure](#--directory-structure)
 - [🤝 | Community and Contributing](#--community-and-contributing)
@@ -20,13 +20,19 @@ Our aim is to provide an intuitive and powerful tool for customizing and enhanci
 
 ## 👋 | Introduction
 
-Echo is designed to streamline the process of training and customizing Stable Diffusion models through the Dreambooth technique and beyond. Whether you're an artist, researcher, or enthusiast, Echo provides the tools you need to personalize and enhance your generative models with ease and precision.
+`Echo` is designed to streamline the process of training and customizing Stable Diffusion models through the Dreambooth technique and beyond. Whether you're an artist, researcher, or enthusiast, `Echo` provides the tools you need to personalize and enhance your generative models with ease and precision.
+
+## 🗒️ | Requirements
+`Echo` requires Python 3.10 or higher. All project dependencies are managed with Poetry and can be found in the `pyproject.toml` file.
+
+If you have not installed Poetry, follow the [instructions](https://python-poetry.org/docs/#installation) to install it.
 
 ## 💻 | Installation
 
-To get started with Echo, clone the repository and install the required dependencies:
+To get started with `Echo`, clone the repository and install the required dependencies:
 
 ### Command Line
+
 ```bash
 # Clone the repository
 git clone https://github.com/yamanahlawat/echo
@@ -38,7 +44,6 @@ cd echo
 poetry shell
 poetry install
 ```
-*Python 3.10 or higher is required to use the latest version of this package.*
 
 ### Docker
 ```
@@ -145,8 +150,6 @@ notebook_launcher(train, num_processes=4)
 
 `num_processes` is the number of gpus you want to use
 
-## 🗒️ | Requirements
-`Echo` requires Python 3.10 or higher. All project dependencies are managed with Poetry and can be found in the `pyproject.toml` file.
 
 
 ## 📅 | Future Plans
@@ -164,7 +167,6 @@ echo/
 ├── docker
 │   └── DockerFile
 ├── docker-compose.yml
-├── output
 ├── poetry.lock
 ├── pyproject.toml
 ├── ruff.toml
