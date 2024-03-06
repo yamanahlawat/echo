@@ -154,7 +154,7 @@ notebook_launcher(train, num_processes=4)
 
 ## 📅 | Future Plans
   - Adding Support for:
-    - SDXL models.
+    - SDXL models (Under development...)
     - LoRA.
     - Continuous improvement of the user experience and documentation.
 

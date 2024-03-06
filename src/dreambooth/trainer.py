@@ -30,7 +30,7 @@ from src.utils.common import collate_fn
 class DreamboothTrainer(BaseTrainer):
     def __init__(self, schema: DreamboothTrainingSchema) -> None:
         super().__init__(schema=schema)
-        self.logger.info("Initializing Dreambooth trainer...")
+        self.logger.info("Initializing Dreambooth Stable Diffusion 1.5 trainer...")
 
         # Initialize the models
         self.pipeline = None
@@ -65,26 +65,28 @@ class DreamboothTrainer(BaseTrainer):
         self.logger.info(f"Loading safetensors pipeline from file: {self.schema.pretrained_model_name_or_path}")
         return StableDiffusionPipeline.from_single_file(
             pretrained_model_link_or_path=self.schema.pretrained_model_name_or_path,
-            safety_checker=None,
+            safety_checker=self.schema.safety_checker,
             variant=self.schema.variant,
         )
 
     def _init_noise_scheduler(self, sub_folder: str = "scheduler"):
-        self.logger.info(
-            f"Initializing DDPMScheduler noise scheduler from pretrained config {self.schema.pretrained_model_name_or_path}"
-        )
         if self.pipeline:
+            self.logger.info(f"Initializing noise scheduler from pipeline: {self.schema.pretrained_model_name_or_path}")
             return self.pipeline.scheduler
+        self.logger.info(
+            f"Initializing noise scheduler from pretrained model: {self.schema.pretrained_model_name_or_path}"
+        )
         return DDPMScheduler.from_pretrained(
             pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
             subfolder=sub_folder,
         )
 
     def _init_unet(self, sub_folder="unet"):
-        self.logger.info(f"Initializing UNet from pretrained model: {self.schema.pretrained_model_name_or_path}")
         if self.pipeline:
+            self.logger.info(f"Initializing UNet from pipeline: {self.schema.pretrained_model_name_or_path}")
             unet = self.pipeline.unet
         else:
+            self.logger.info(f"Initializing UNet from pretrained model: {self.schema.pretrained_model_name_or_path}")
             unet = UNet2DConditionModel.from_pretrained(
                 pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
                 subfolder=sub_folder,
@@ -204,7 +206,7 @@ class DreamboothTrainer(BaseTrainer):
                     pretrained_model_name_or_path=self.schema.pretrained_model_name_or_path,
                     torch_dtype=torch_dtype,
                     variant=self.schema.variant,
-                    safety_checker=None,
+                    safety_checker=self.schema.safety_checkers,
                 )
             pipeline.set_progress_bar_config(disable=True)
             num_new_images = self.schema.num_class_images - existing_class_images
@@ -486,7 +488,7 @@ class DreamboothTrainer(BaseTrainer):
                 unet=self._unwrap_model(model=self.unet),
                 variant=self.schema.variant,
                 torch_dtype=self.weight_dtype,
-                safety_checker=None,
+                safety_checker=self.schema.safety_checker,
                 vae=self.vae,
             )
 
