@@ -19,6 +19,8 @@ class ModelConfigurationSchema(BaseModel):
             " More details: https://github.com/huggingface/diffusers/pull/4038."
         ),
     )
+    # TODO: check if boolean works or we need None
+    safety_checker: bool = Field(default=False, description="Whether or not to use the safety checker.")
     cache_latents: bool = Field(default=True, description="Whether to cache latents in memory.")
     no_half_vae: bool = Field(
         default=False,
