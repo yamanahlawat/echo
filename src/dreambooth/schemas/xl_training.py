@@ -1,5 +1,5 @@
 from loguru import logger
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from src.core.schemas import (
     AdvancedTrainingFeaturesSchema,
@@ -33,6 +33,11 @@ class DreamboothXLTrainingSchema(
     InstanceSchema,
     ModelConfigurationSchema,
 ):
+    edm_style_training: bool = Field(
+        default=False,
+        description="Whether to conduct training using the EDM formulation as introduced in https://arxiv.org/abs/2206.00364.",
+    )
+
     @field_validator("tokenizer_name", mode="after")
     @classmethod
     def validate_tokenizer_name(cls, value: str) -> str:

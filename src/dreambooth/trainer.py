@@ -239,6 +239,31 @@ class DreamboothTrainer(BaseTrainer):
                 f"Found {existing_class_images} class images, which is more than the required {self.schema.num_class_images}."
             )
 
+    def _tokenize_prompt(self, prompt: str, add_special_tokens: bool = False):
+        return self.tokenizer(
+            text=prompt,
+            padding="max_length",
+            max_length=self.tokenizer.model_max_length,
+            truncation=True,
+            add_special_tokens=add_special_tokens,
+            return_tensors="pt",
+        )
+
+    def _encode_prompt(self, input_ids, attention_mask):
+        text_inputs_ids = input_ids.to(device=self.text_encoder.device)
+
+        if self.schema.text_encoder_use_attention_mask:
+            text_attention_mask = attention_mask.to(device=self.text_encoder.device)
+        else:
+            text_attention_mask = None
+        prompt_embeds = self.text_encoder(
+            input_ids=text_inputs_ids,
+            attention_mask=text_attention_mask,
+            return_dict=False,
+        )
+        prompt_embeds = prompt_embeds[0]
+        return prompt_embeds
+
     def _compute_text_embeddings(self, prompt: str):
         with torch.no_grad():
             text_inputs = self._tokenize_prompt(prompt=prompt, add_special_tokens=True)
@@ -274,31 +299,6 @@ class DreamboothTrainer(BaseTrainer):
 
             model.load_state_dict(load_model.state_dict())
             del load_model
-
-    def _tokenize_prompt(self, prompt: str, add_special_tokens: bool = False):
-        return self.tokenizer(
-            text=prompt,
-            padding="max_length",
-            max_length=self.tokenizer.model_max_length,
-            truncation=True,
-            add_special_tokens=add_special_tokens,
-            return_tensors="pt",
-        )
-
-    def _encode_prompt(self, input_ids, attention_mask):
-        text_inputs_ids = input_ids.to(device=self.text_encoder.device)
-
-        if self.schema.text_encoder_use_attention_mask:
-            text_attention_mask = attention_mask.to(device=self.text_encoder.device)
-        else:
-            text_attention_mask = None
-        prompt_embeds = self.text_encoder(
-            input_ids=text_inputs_ids,
-            attention_mask=text_attention_mask,
-            return_dict=False,
-        )
-        prompt_embeds = prompt_embeds[0]
-        return prompt_embeds
 
     def setup(self):
         if self.schema.gradient_checkpointing:

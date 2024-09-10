@@ -35,6 +35,8 @@ class DreamboothXLTrainer(BaseTrainer):
 
         # tokenizer
         self.tokenizer_one, self.tokenizer_two = self._init_tokenizers()
+        # list of all tokenizers
+        self.tokenizers = [self.tokenizer_one, self.tokenizer_two]
 
         # text encoder
         if self.pipeline:
@@ -44,6 +46,8 @@ class DreamboothXLTrainer(BaseTrainer):
             self.text_encoder_model_class_one = self._get_text_encoder_model_class()
             self.text_encoder_model_class_one = self._get_text_encoder_model_class(sub_folder="text_encoder_2")
         self.text_encoder_one, self.text_encoder_two = self._init_text_encoders()
+        # list of all text encoders
+        self.text_encoders = [self.text_encoder_one, self.text_encoder_two]
 
     def _init_pipeline(self):
         self.logger.info(f"Loading safetensors pipeline from file: {self.schema.pretrained_model_name_or_path}")
@@ -241,3 +245,48 @@ class DreamboothXLTrainer(BaseTrainer):
             self.logger.info(
                 f"Found {existing_class_images} class images, which is more than the required {self.schema.num_class_images}."
             )
+
+    def _tokenize_prompt(self, tokenizer: AutoTokenizer, prompt: str, add_special_tokens: bool = False):
+        return tokenizer(
+            text=prompt,
+            padding="max_length",
+            max_length=tokenizer.model_max_length,
+            truncation=True,
+            add_special_tokens=add_special_tokens,
+            return_tensors="pt",
+        )
+
+    def _encode_prompt(
+        self, tokenizers: list | None = None, prompt: str | None = None, text_input_ids_list: list | None = None
+    ):
+        prompt_embed_list = []
+
+        for index, text_encoder in enumerate(self.text_encoders):
+            if tokenizers:
+                text_inputs = self._tokenize_prompt(tokenizer=tokenizers[index], prompt=prompt)
+                text_input_ids = text_inputs.input_ids
+            else:
+                assert text_input_ids_list is not None
+                text_input_ids = text_input_ids_list[index]
+
+            prompt_embeds = text_encoder(
+                input_ids=text_input_ids.to(device=self.accelerator.device),
+                output_hidden_states=True,
+                return_dict=False,
+            )
+            pooled_prompt_embeds = prompt_embeds[0]
+            prompt_embeds = prompt_embeds[-1][-2]
+            bs_embed, seq_len, _ = prompt_embeds.shape
+            prompt_embeds = prompt_embeds.view(bs_embed * seq_len, -1)
+            prompt_embed_list.append(prompt_embeds)
+
+        prompt_embeds = torch.cat(prompt_embed_list, dim=-1)
+        pooled_prompt_embeds = pooled_prompt_embeds.view(bs_embed, -1)
+        return prompt_embeds, pooled_prompt_embeds
+
+    def _compute_text_embeddings(self, prompt: str):
+        with torch.no_grad():
+            prompt_embeds, pooled_prompt_embeds = self._encode_prompt(tokenizers=self.tokenizers, prompt=prompt)
+            prompt_embeds = prompt_embeds.to(device=self.accelerator.device)
+            pooled_prompt_embeds = pooled_prompt_embeds.to(device=self.accelerator.device)
+        return prompt_embeds, pooled_prompt_embeds
